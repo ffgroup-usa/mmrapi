@@ -80,7 +80,9 @@ const getArchivedEvents = `-- name: GetArchivedEvents :many
 SELECT 
     e.id, e.car_id, e.plate_utf8, e.car_state, e.sensor_provider_id, 
     e.event_datetime, e.created_at, e.plate_country, e.plate_region,
-    e.vehicle_make, e.vehicle_model, e.vehicle_color, e.json_filename,
+    e.vehicle_make, e.vehicle_model, e.vehicle_color, e.vehicle_type,
+    e.plate_confidence, e.confidence_mmr, e.confidence_color,
+    e.json_filename,
     COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as first_image_id,
     COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as second_image_id
 FROM events e
@@ -101,6 +103,10 @@ type GetArchivedEventsRow struct {
 	VehicleMake      *string     `json:"vehicle_make"`
 	VehicleModel     *string     `json:"vehicle_model"`
 	VehicleColor     *string     `json:"vehicle_color"`
+	VehicleType      *string     `json:"vehicle_type"`
+	PlateConfidence  *float64    `json:"plate_confidence"`
+	ConfidenceMmr    *string     `json:"confidence_mmr"`
+	ConfidenceColor  *string     `json:"confidence_color"`
 	JsonFilename     *string     `json:"json_filename"`
 	FirstImageID     interface{} `json:"first_image_id"`
 	SecondImageID    interface{} `json:"second_image_id"`
@@ -128,6 +134,10 @@ func (q *Queries) GetArchivedEvents(ctx context.Context, archiveID *int64) ([]Ge
 			&i.VehicleMake,
 			&i.VehicleModel,
 			&i.VehicleColor,
+			&i.VehicleType,
+			&i.PlateConfidence,
+			&i.ConfidenceMmr,
+			&i.ConfidenceColor,
 			&i.JsonFilename,
 			&i.FirstImageID,
 			&i.SecondImageID,
@@ -178,7 +188,7 @@ func (q *Queries) GetArchives(ctx context.Context) ([]Archive, error) {
 }
 
 const getEventByID = `-- name: GetEventByID :one
-SELECT id, car_id, plate_utf8, car_state, sensor_provider_id, event_datetime, capture_timestamp, plate_country, plate_region, plate_confidence, geotag_lat, geotag_lon, vehicle_make, vehicle_model, vehicle_color, camera_serial, camera_ip, raw_json, created_at, archive_id, json_filename FROM events WHERE id = ?
+SELECT id, car_id, plate_utf8, car_state, sensor_provider_id, event_datetime, capture_timestamp, plate_country, plate_region, plate_confidence, geotag_lat, geotag_lon, vehicle_make, vehicle_model, vehicle_color, camera_serial, camera_ip, raw_json, created_at, archive_id, json_filename, vehicle_type, confidence_mmr, confidence_color FROM events WHERE id = ?
 `
 
 func (q *Queries) GetEventByID(ctx context.Context, id int64) (Event, error) {
@@ -206,6 +216,9 @@ func (q *Queries) GetEventByID(ctx context.Context, id int64) (Event, error) {
 		&i.CreatedAt,
 		&i.ArchiveID,
 		&i.JsonFilename,
+		&i.VehicleType,
+		&i.ConfidenceMmr,
+		&i.ConfidenceColor,
 	)
 	return i, err
 }
@@ -291,7 +304,9 @@ const getRecentEvents = `-- name: GetRecentEvents :many
 SELECT 
     e.id, e.car_id, e.plate_utf8, e.car_state, e.sensor_provider_id, 
     e.event_datetime, e.created_at, e.plate_country, e.plate_region,
-    e.vehicle_make, e.vehicle_model, e.vehicle_color, e.json_filename,
+    e.vehicle_make, e.vehicle_model, e.vehicle_color, e.vehicle_type,
+    e.plate_confidence, e.confidence_mmr, e.confidence_color,
+    e.json_filename,
     COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as first_image_id,
     COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as second_image_id
 FROM events e
@@ -313,6 +328,10 @@ type GetRecentEventsRow struct {
 	VehicleMake      *string     `json:"vehicle_make"`
 	VehicleModel     *string     `json:"vehicle_model"`
 	VehicleColor     *string     `json:"vehicle_color"`
+	VehicleType      *string     `json:"vehicle_type"`
+	PlateConfidence  *float64    `json:"plate_confidence"`
+	ConfidenceMmr    *string     `json:"confidence_mmr"`
+	ConfidenceColor  *string     `json:"confidence_color"`
 	JsonFilename     *string     `json:"json_filename"`
 	FirstImageID     interface{} `json:"first_image_id"`
 	SecondImageID    interface{} `json:"second_image_id"`
@@ -340,6 +359,10 @@ func (q *Queries) GetRecentEvents(ctx context.Context, limit int64) ([]GetRecent
 			&i.VehicleMake,
 			&i.VehicleModel,
 			&i.VehicleColor,
+			&i.VehicleType,
+			&i.PlateConfidence,
+			&i.ConfidenceMmr,
+			&i.ConfidenceColor,
 			&i.JsonFilename,
 			&i.FirstImageID,
 			&i.SecondImageID,
@@ -362,9 +385,10 @@ INSERT INTO events (
     car_id, plate_utf8, car_state, sensor_provider_id,
     event_datetime, capture_timestamp, plate_country, plate_region, plate_confidence,
     geotag_lat, geotag_lon, vehicle_make, vehicle_model, vehicle_color,
+    vehicle_type, confidence_mmr, confidence_color,
     camera_serial, camera_ip, raw_json, created_at
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 ) RETURNING id
 `
 
@@ -383,6 +407,9 @@ type InsertEventParams struct {
 	VehicleMake      *string   `json:"vehicle_make"`
 	VehicleModel     *string   `json:"vehicle_model"`
 	VehicleColor     *string   `json:"vehicle_color"`
+	VehicleType      *string   `json:"vehicle_type"`
+	ConfidenceMmr    *string   `json:"confidence_mmr"`
+	ConfidenceColor  *string   `json:"confidence_color"`
 	CameraSerial     *string   `json:"camera_serial"`
 	CameraIp         *string   `json:"camera_ip"`
 	RawJson          *string   `json:"raw_json"`
@@ -405,6 +432,9 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (int64
 		arg.VehicleMake,
 		arg.VehicleModel,
 		arg.VehicleColor,
+		arg.VehicleType,
+		arg.ConfidenceMmr,
+		arg.ConfidenceColor,
 		arg.CameraSerial,
 		arg.CameraIp,
 		arg.RawJson,

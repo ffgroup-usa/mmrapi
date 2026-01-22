@@ -37,6 +37,9 @@ type Event struct {
 	CreatedAt        time.Time `json:"created_at"`
 	ArchiveID        *int64    `json:"archive_id"`
 	JsonFilename     *string   `json:"json_filename"`
+	VehicleType      *string   `json:"vehicle_type"`
+	ConfidenceMmr    *string   `json:"confidence_mmr"`
+	ConfidenceColor  *string   `json:"confidence_color"`
 }
 
 type Image struct {

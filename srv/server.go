@@ -64,9 +64,12 @@ type IncomingEvent struct {
 
 	// Vehicle info
 	VehicleInfo *struct {
-		Make  string `json:"make"`
-		Model string `json:"model"`
-		Color string `json:"color"`
+		Make            string `json:"make"`
+		Model           string `json:"model"`
+		Color           string `json:"color"`
+		Type            string `json:"type"`
+		ConfidenceMMR   string `json:"confidenceMMR"`
+		ConfidenceColor string `json:"confidenceColor"`
 	} `json:"vehicle_info"`
 
 	// Camera info
@@ -253,11 +256,14 @@ func (s *Server) HandleAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Vehicle info
-	var vMake, vModel, vColor *string
+	var vMake, vModel, vColor, vType, confMMR, confColor *string
 	if event.VehicleInfo != nil {
 		vMake = ptrIfNotEmpty(event.VehicleInfo.Make)
 		vModel = ptrIfNotEmpty(event.VehicleInfo.Model)
 		vColor = ptrIfNotEmpty(event.VehicleInfo.Color)
+		vType = ptrIfNotEmpty(event.VehicleInfo.Type)
+		confMMR = ptrIfNotEmpty(event.VehicleInfo.ConfidenceMMR)
+		confColor = ptrIfNotEmpty(event.VehicleInfo.ConfidenceColor)
 	}
 
 	// Camera info
@@ -287,6 +293,9 @@ func (s *Server) HandleAPI(w http.ResponseWriter, r *http.Request) {
 		VehicleMake:      vMake,
 		VehicleModel:     vModel,
 		VehicleColor:     vColor,
+		VehicleType:      vType,
+		ConfidenceMmr:    confMMR,
+		ConfidenceColor:  confColor,
 		CameraSerial:     camSerial,
 		CameraIp:         camIP,
 		RawJson:          &rawJSONStr,

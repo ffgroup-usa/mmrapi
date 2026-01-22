@@ -68,10 +68,15 @@
         .empty { color: #999; }
         .img-cell { position: relative; }
         .img-icon {
-            width: 24px; height: 24px;
+            max-height: 40px;
+            width: auto;
             cursor: pointer;
             vertical-align: middle;
+            border: 1px solid #ddd;
+            border-radius: 2px;
         }
+        [title] { cursor: help; }
+        .has-tooltip { border-bottom: 1px dotted #666; }
         .table-wrapper {
             overflow-x: auto;
             max-height: 75vh;
@@ -180,12 +185,12 @@
                 <tr data-event-id="{{.ID}}" onclick="showJson({{.ID}})">
                     <td>{{if .EventDatetime}}{{.EventDatetime}}{{else}}{{.CreatedAt.Format "20060102 150405"}}{{end}}</td>
                     <td>{{.CarID}}</td>
-                    <td>{{if .PlateUtf8}}<span class="plate">{{.PlateUtf8}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td>{{if .PlateUtf8}}<span class="plate has-tooltip" {{if .PlateConfidence}}title="Confidence: {{.PlateConfidence}}"{{end}}>{{.PlateUtf8}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .PlateCountry}}{{.PlateCountry}}{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .VehicleMake}}{{.VehicleMake}}{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td>{{if .VehicleModel}}{{.VehicleModel}}{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td><span class="empty">-</span></td>
-                    <td>{{if .VehicleColor}}{{.VehicleColor}}{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td>{{if .VehicleModel}}<span class="has-tooltip" {{if .ConfidenceMmr}}title="Confidence: {{.ConfidenceMmr}}"{{end}}>{{.VehicleModel}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td>{{if .VehicleType}}{{.VehicleType}}{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td>{{if .VehicleColor}}<span class="has-tooltip" {{if .ConfidenceColor}}title="Confidence: {{.ConfidenceColor}}"{{end}}>{{.VehicleColor}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
                     <td class="img-cell" onclick="event.stopPropagation();">
                         {{if gt .SecondImageID 0}}
                         <img class="img-icon" src="/image/{{.SecondImageID}}" alt="LP" onclick="showImage({{.SecondImageID}}, {{.FirstImageID}})">
@@ -266,6 +271,8 @@
                 closeModal('imageModal');
             }
         });
+
+
     </script>
 </body>
 </html>
