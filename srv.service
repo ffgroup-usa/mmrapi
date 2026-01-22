@@ -1,0 +1,19 @@
+[Unit]
+Description=Car API Server
+After=network.target
+
+[Service]
+Type=simple
+User=exedev
+Group=exedev
+WorkingDirectory=/home/exedev/carapi
+ExecStart=/home/exedev/carapi/carapi -listen :8000
+Restart=always
+RestartSec=5
+Environment=HOME=/home/exedev
+Environment=USER=exedev
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
