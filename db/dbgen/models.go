@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+type Archive struct {
+	ID         int64     `json:"id"`
+	Name       *string   `json:"name"`
+	EventCount int64     `json:"event_count"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type Event struct {
 	ID               int64     `json:"id"`
 	CarID            string    `json:"car_id"`
@@ -28,15 +35,18 @@ type Event struct {
 	CameraIp         *string   `json:"camera_ip"`
 	RawJson          *string   `json:"raw_json"`
 	CreatedAt        time.Time `json:"created_at"`
+	ArchiveID        *int64    `json:"archive_id"`
+	JsonFilename     *string   `json:"json_filename"`
 }
 
 type Image struct {
-	ID        int64     `json:"id"`
-	EventID   int64     `json:"event_id"`
-	ImageType *string   `json:"image_type"`
-	Filename  *string   `json:"filename"`
-	ImageData []byte    `json:"image_data"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           int64     `json:"id"`
+	EventID      int64     `json:"event_id"`
+	ImageType    *string   `json:"image_type"`
+	Filename     *string   `json:"filename"`
+	ImageData    []byte    `json:"image_data"`
+	CreatedAt    time.Time `json:"created_at"`
+	DiskFilename *string   `json:"disk_filename"`
 }
 
 type Migration struct {

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Car API - Dashboard</title>
+    <title>Archive: {{.Archive.Name}} - Car API</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -19,15 +19,10 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .stats span { font-size: 1.3em; color: #2196F3; font-weight: bold; }
-        .btn {
-            padding: 8px 16px; border: none; border-radius: 6px;
-            cursor: pointer; font-size: 14px; font-weight: 500;
-        }
-        .btn-danger { background: #dc3545; color: white; }
-        .btn-danger:hover { background: #c82333; }
         .archives {
             background: #fff; padding: 10px 15px; border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 15px;
         }
         .archives a { margin-right: 10px; color: #1a73e8; text-decoration: none; font-size: 13px; }
         .archives a:hover { text-decoration: underline; }
@@ -77,7 +72,6 @@
             max-height: 75vh;
             overflow-y: auto;
         }
-        /* Modal styles */
         .modal {
             display: none;
             position: fixed;
@@ -138,26 +132,19 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚗 Car API Dashboard</h1>
+            <h1>📁 Archive: {{.Archive.Name}}</h1>
             <div class="stats">
                 <span>{{.EventCount}}</span> events
             </div>
-            {{if gt .EventCount 0}}
-            <form method="POST" action="/clean" style="display:inline;" onsubmit="return confirm('Archive {{.EventCount}} events and clear the dashboard?');">
-                <button type="submit" class="btn btn-danger">Clean</button>
-            </form>
-            {{end}}
         </div>
         
-        {{if .Archives}}
         <div class="archives">
             <strong>Archives:</strong>
-            <a href="/" {{if eq .ArchiveID 0}}class="active"{{end}}>Current</a>
+            <a href="/">Current</a>
             {{range .Archives}}
-            <a href="/archive/{{.ID}}">{{.Name}} ({{.EventCount}})</a>
+            <a href="/archive/{{.ID}}" {{if eq .ID $.ArchiveID}}class="active"{{end}}>{{.Name}} ({{.EventCount}})</a>
             {{end}}
         </div>
-        {{end}}
         
         {{if .Events}}
         <div class="table-wrapper">
@@ -201,11 +188,10 @@
         </table>
         </div>
         {{else}}
-        <p class="empty">No events yet. Send data to POST /api</p>
+        <p class="empty">No events in this archive.</p>
         {{end}}
     </div>
 
-    <!-- JSON Modal -->
     <div id="jsonModal" class="modal" onclick="if(event.target===this)closeModal('jsonModal')">
         <div class="modal-content" style="width: 600px;">
             <div class="modal-header">
@@ -219,7 +205,6 @@
         </div>
     </div>
 
-    <!-- Image Modal -->
     <div id="imageModal" class="modal" onclick="if(event.target===this)closeModal('imageModal')">
         <div class="modal-content">
             <div class="modal-header">

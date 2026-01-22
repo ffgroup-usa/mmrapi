@@ -10,6 +10,26 @@ import (
 	"time"
 )
 
+const archiveCurrentEvents = `-- name: ArchiveCurrentEvents :exec
+UPDATE events SET archive_id = ? WHERE archive_id IS NULL
+`
+
+func (q *Queries) ArchiveCurrentEvents(ctx context.Context, archiveID *int64) error {
+	_, err := q.db.ExecContext(ctx, archiveCurrentEvents, archiveID)
+	return err
+}
+
+const countCurrentEvents = `-- name: CountCurrentEvents :one
+SELECT COUNT(*) FROM events WHERE archive_id IS NULL
+`
+
+func (q *Queries) CountCurrentEvents(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countCurrentEvents)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countEvents = `-- name: CountEvents :one
 SELECT COUNT(*) FROM events
 `
@@ -21,8 +41,144 @@ func (q *Queries) CountEvents(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const createArchive = `-- name: CreateArchive :one
+INSERT INTO archives (name, event_count, created_at)
+VALUES (?, ?, ?)
+RETURNING id
+`
+
+type CreateArchiveParams struct {
+	Name       *string   `json:"name"`
+	EventCount int64     `json:"event_count"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+func (q *Queries) CreateArchive(ctx context.Context, arg CreateArchiveParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, createArchive, arg.Name, arg.EventCount, arg.CreatedAt)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getArchiveByID = `-- name: GetArchiveByID :one
+SELECT id, name, event_count, created_at FROM archives WHERE id = ?
+`
+
+func (q *Queries) GetArchiveByID(ctx context.Context, id int64) (Archive, error) {
+	row := q.db.QueryRowContext(ctx, getArchiveByID, id)
+	var i Archive
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.EventCount,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getArchivedEvents = `-- name: GetArchivedEvents :many
+SELECT 
+    e.id, e.car_id, e.plate_utf8, e.car_state, e.sensor_provider_id, 
+    e.event_datetime, e.created_at, e.plate_country, e.plate_region,
+    e.vehicle_make, e.vehicle_model, e.vehicle_color, e.json_filename,
+    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as first_image_id,
+    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as second_image_id
+FROM events e
+WHERE e.archive_id = ?
+ORDER BY e.created_at DESC
+`
+
+type GetArchivedEventsRow struct {
+	ID               int64       `json:"id"`
+	CarID            string      `json:"car_id"`
+	PlateUtf8        *string     `json:"plate_utf8"`
+	CarState         *string     `json:"car_state"`
+	SensorProviderID *string     `json:"sensor_provider_id"`
+	EventDatetime    *string     `json:"event_datetime"`
+	CreatedAt        time.Time   `json:"created_at"`
+	PlateCountry     *string     `json:"plate_country"`
+	PlateRegion      *string     `json:"plate_region"`
+	VehicleMake      *string     `json:"vehicle_make"`
+	VehicleModel     *string     `json:"vehicle_model"`
+	VehicleColor     *string     `json:"vehicle_color"`
+	JsonFilename     *string     `json:"json_filename"`
+	FirstImageID     interface{} `json:"first_image_id"`
+	SecondImageID    interface{} `json:"second_image_id"`
+}
+
+func (q *Queries) GetArchivedEvents(ctx context.Context, archiveID *int64) ([]GetArchivedEventsRow, error) {
+	rows, err := q.db.QueryContext(ctx, getArchivedEvents, archiveID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetArchivedEventsRow{}
+	for rows.Next() {
+		var i GetArchivedEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CarID,
+			&i.PlateUtf8,
+			&i.CarState,
+			&i.SensorProviderID,
+			&i.EventDatetime,
+			&i.CreatedAt,
+			&i.PlateCountry,
+			&i.PlateRegion,
+			&i.VehicleMake,
+			&i.VehicleModel,
+			&i.VehicleColor,
+			&i.JsonFilename,
+			&i.FirstImageID,
+			&i.SecondImageID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getArchives = `-- name: GetArchives :many
+SELECT id, name, event_count, created_at FROM archives ORDER BY created_at DESC
+`
+
+func (q *Queries) GetArchives(ctx context.Context) ([]Archive, error) {
+	rows, err := q.db.QueryContext(ctx, getArchives)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Archive{}
+	for rows.Next() {
+		var i Archive
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.EventCount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getEventByID = `-- name: GetEventByID :one
-SELECT id, car_id, plate_utf8, car_state, sensor_provider_id, event_datetime, capture_timestamp, plate_country, plate_region, plate_confidence, geotag_lat, geotag_lon, vehicle_make, vehicle_model, vehicle_color, camera_serial, camera_ip, raw_json, created_at FROM events WHERE id = ?
+SELECT id, car_id, plate_utf8, car_state, sensor_provider_id, event_datetime, capture_timestamp, plate_country, plate_region, plate_confidence, geotag_lat, geotag_lon, vehicle_make, vehicle_model, vehicle_color, camera_serial, camera_ip, raw_json, created_at, archive_id, json_filename FROM events WHERE id = ?
 `
 
 func (q *Queries) GetEventByID(ctx context.Context, id int64) (Event, error) {
@@ -48,6 +204,8 @@ func (q *Queries) GetEventByID(ctx context.Context, id int64) (Event, error) {
 		&i.CameraIp,
 		&i.RawJson,
 		&i.CreatedAt,
+		&i.ArchiveID,
+		&i.JsonFilename,
 	)
 	return i, err
 }
@@ -61,6 +219,33 @@ func (q *Queries) GetImageData(ctx context.Context, id int64) ([]byte, error) {
 	var image_data []byte
 	err := row.Scan(&image_data)
 	return image_data, err
+}
+
+const getImageWithFilename = `-- name: GetImageWithFilename :one
+SELECT id, event_id, image_type, filename, disk_filename, created_at FROM images WHERE id = ?
+`
+
+type GetImageWithFilenameRow struct {
+	ID           int64     `json:"id"`
+	EventID      int64     `json:"event_id"`
+	ImageType    *string   `json:"image_type"`
+	Filename     *string   `json:"filename"`
+	DiskFilename *string   `json:"disk_filename"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (q *Queries) GetImageWithFilename(ctx context.Context, id int64) (GetImageWithFilenameRow, error) {
+	row := q.db.QueryRowContext(ctx, getImageWithFilename, id)
+	var i GetImageWithFilenameRow
+	err := row.Scan(
+		&i.ID,
+		&i.EventID,
+		&i.ImageType,
+		&i.Filename,
+		&i.DiskFilename,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getImagesByEventID = `-- name: GetImagesByEventID :many
@@ -106,10 +291,11 @@ const getRecentEvents = `-- name: GetRecentEvents :many
 SELECT 
     e.id, e.car_id, e.plate_utf8, e.car_state, e.sensor_provider_id, 
     e.event_datetime, e.created_at, e.plate_country, e.plate_region,
-    e.vehicle_make, e.vehicle_model, e.vehicle_color,
+    e.vehicle_make, e.vehicle_model, e.vehicle_color, e.json_filename,
     COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as first_image_id,
     COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as second_image_id
 FROM events e
+WHERE e.archive_id IS NULL
 ORDER BY e.created_at DESC
 LIMIT ?
 `
@@ -127,6 +313,7 @@ type GetRecentEventsRow struct {
 	VehicleMake      *string     `json:"vehicle_make"`
 	VehicleModel     *string     `json:"vehicle_model"`
 	VehicleColor     *string     `json:"vehicle_color"`
+	JsonFilename     *string     `json:"json_filename"`
 	FirstImageID     interface{} `json:"first_image_id"`
 	SecondImageID    interface{} `json:"second_image_id"`
 }
@@ -153,6 +340,7 @@ func (q *Queries) GetRecentEvents(ctx context.Context, limit int64) ([]GetRecent
 			&i.VehicleMake,
 			&i.VehicleModel,
 			&i.VehicleColor,
+			&i.JsonFilename,
 			&i.FirstImageID,
 			&i.SecondImageID,
 		); err != nil {
@@ -303,4 +491,32 @@ func (q *Queries) SearchByPlate(ctx context.Context, arg SearchByPlateParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateEventJsonFilename = `-- name: UpdateEventJsonFilename :exec
+UPDATE events SET json_filename = ? WHERE id = ?
+`
+
+type UpdateEventJsonFilenameParams struct {
+	JsonFilename *string `json:"json_filename"`
+	ID           int64   `json:"id"`
+}
+
+func (q *Queries) UpdateEventJsonFilename(ctx context.Context, arg UpdateEventJsonFilenameParams) error {
+	_, err := q.db.ExecContext(ctx, updateEventJsonFilename, arg.JsonFilename, arg.ID)
+	return err
+}
+
+const updateImageDiskFilename = `-- name: UpdateImageDiskFilename :exec
+UPDATE images SET disk_filename = ? WHERE id = ?
+`
+
+type UpdateImageDiskFilenameParams struct {
+	DiskFilename *string `json:"disk_filename"`
+	ID           int64   `json:"id"`
+}
+
+func (q *Queries) UpdateImageDiskFilename(ctx context.Context, arg UpdateImageDiskFilenameParams) error {
+	_, err := q.db.ExecContext(ctx, updateImageDiskFilename, arg.DiskFilename, arg.ID)
+	return err
 }

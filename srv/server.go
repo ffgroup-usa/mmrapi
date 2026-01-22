@@ -1,6 +1,7 @@
 package srv
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -9,7 +10,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -24,6 +27,7 @@ type Server struct {
 	Hostname     string
 	TemplatesDir string
 	StaticDir    string
+	DataDir      string // For storing JSON and images on disk
 }
 
 // Event JSON structures (flexible to handle different field naming conventions)
@@ -103,15 +107,34 @@ func ptrIfNotEmpty(s string) *string {
 func New(dbPath, hostname string) (*Server, error) {
 	_, thisFile, _, _ := runtime.Caller(0)
 	baseDir := filepath.Dir(thisFile)
+	dataDir := filepath.Join(filepath.Dir(baseDir), "data")
+	
+	// Create data directories
+	os.MkdirAll(filepath.Join(dataDir, "json"), 0755)
+	os.MkdirAll(filepath.Join(dataDir, "images"), 0755)
+	
 	srv := &Server{
 		Hostname:     hostname,
 		TemplatesDir: filepath.Join(baseDir, "templates"),
 		StaticDir:    filepath.Join(baseDir, "static"),
+		DataDir:      dataDir,
 	}
 	if err := srv.setUpDatabase(dbPath); err != nil {
 		return nil, err
 	}
 	return srv, nil
+}
+
+// insertImageWithID inserts an image and returns its ID
+func (s *Server) insertImageWithID(ctx context.Context, q *dbgen.Queries, params dbgen.InsertImageParams) (int64, error) {
+	err := q.InsertImage(ctx, params)
+	if err != nil {
+		return 0, err
+	}
+	// Get the last inserted ID
+	var id int64
+	err = s.DB.QueryRowContext(ctx, "SELECT last_insert_rowid()").Scan(&id)
+	return id, err
 }
 
 func (s *Server) setUpDatabase(dbPath string) error {
@@ -126,10 +149,17 @@ func (s *Server) setUpDatabase(dbPath string) error {
 	return nil
 }
 
+// sanitizeFilename removes unsafe characters from filenames
+func sanitizeFilename(name string) string {
+	re := regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+	return re.ReplaceAllString(name, "_")
+}
+
 // HandleAPI processes incoming car events
 func (s *Server) HandleAPI(w http.ResponseWriter, r *http.Request) {
 	var event IncomingEvent
 	var rawJSON []byte
+	var jsonFilename string // Original filename from multipart
 	var uploadedImages []struct {
 		Filename string
 		Data     []byte
@@ -158,6 +188,7 @@ func (s *Server) HandleAPI(w http.ResponseWriter, r *http.Request) {
 					lowerName := strings.ToLower(f.Filename)
 					if strings.HasSuffix(lowerName, ".json") {
 						rawJSON = data
+						jsonFilename = f.Filename
 					} else if strings.HasSuffix(lowerName, ".jpg") ||
 						strings.HasSuffix(lowerName, ".jpeg") ||
 						strings.HasSuffix(lowerName, ".png") {
@@ -269,9 +300,31 @@ func (s *Server) HandleAPI(w http.ResponseWriter, r *http.Request) {
 
 	imageCount := 0
 
+	// Save JSON to disk
+	if jsonFilename == "" {
+		// Generate filename: id_plate.json
+		safePlate := sanitizeFilename(plate)
+		if safePlate == "" {
+			safePlate = "unknown"
+		}
+		jsonFilename = fmt.Sprintf("%d_%s.json", eventID, safePlate)
+	} else {
+		// Prefix with event ID to ensure uniqueness
+		jsonFilename = fmt.Sprintf("%d_%s", eventID, sanitizeFilename(jsonFilename))
+	}
+	jsonPath := filepath.Join(s.DataDir, "json", jsonFilename)
+	if err := os.WriteFile(jsonPath, rawJSON, 0644); err != nil {
+		slog.Warn("failed to save JSON to disk", "error", err)
+	} else {
+		q.UpdateEventJsonFilename(r.Context(), dbgen.UpdateEventJsonFilenameParams{
+			JsonFilename: &jsonFilename,
+			ID:           eventID,
+		})
+	}
+
 	// Save uploaded images
-	for _, img := range uploadedImages {
-		err := q.InsertImage(r.Context(), dbgen.InsertImageParams{
+	for i, img := range uploadedImages {
+		imgID, err := s.insertImageWithID(r.Context(), q, dbgen.InsertImageParams{
 			EventID:   eventID,
 			ImageType: ptr("uploaded"),
 			Filename:  &img.Filename,
@@ -280,8 +333,27 @@ func (s *Server) HandleAPI(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			slog.Warn("failed to save uploaded image", "error", err)
+			continue
+		}
+		imageCount++
+		
+		// Save to disk
+		diskFilename := fmt.Sprintf("%d_%s", imgID, sanitizeFilename(img.Filename))
+		if diskFilename == fmt.Sprintf("%d_", imgID) {
+			safePlate := sanitizeFilename(plate)
+			if safePlate == "" {
+				safePlate = "unknown"
+			}
+			diskFilename = fmt.Sprintf("%d_%s_%d.jpg", imgID, safePlate, i)
+		}
+		imgPath := filepath.Join(s.DataDir, "images", diskFilename)
+		if err := os.WriteFile(imgPath, img.Data, 0644); err != nil {
+			slog.Warn("failed to save image to disk", "error", err)
 		} else {
-			imageCount++
+			q.UpdateImageDiskFilename(r.Context(), dbgen.UpdateImageDiskFilenameParams{
+				DiskFilename: &diskFilename,
+				ID:           imgID,
+			})
 		}
 	}
 
@@ -305,7 +377,7 @@ func (s *Server) HandleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		filename := fmt.Sprintf("%s_%d.%s", imgType, i, ext)
 
-		err = q.InsertImage(r.Context(), dbgen.InsertImageParams{
+		imgID, err := s.insertImageWithID(r.Context(), q, dbgen.InsertImageParams{
 			EventID:   eventID,
 			ImageType: &imgType,
 			Filename:  &filename,
@@ -314,8 +386,24 @@ func (s *Server) HandleAPI(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			slog.Warn("failed to save embedded image", "error", err)
+			continue
+		}
+		imageCount++
+		
+		// Save to disk
+		safePlate := sanitizeFilename(plate)
+		if safePlate == "" {
+			safePlate = "unknown"
+		}
+		diskFilename := fmt.Sprintf("%d_%s_%s.%s", imgID, safePlate, imgType, ext)
+		imgPath := filepath.Join(s.DataDir, "images", diskFilename)
+		if err := os.WriteFile(imgPath, decoded, 0644); err != nil {
+			slog.Warn("failed to save image to disk", "error", err)
 		} else {
-			imageCount++
+			q.UpdateImageDiskFilename(r.Context(), dbgen.UpdateImageDiskFilenameParams{
+				DiskFilename: &diskFilename,
+				ID:           imgID,
+			})
 		}
 	}
 
@@ -343,17 +431,22 @@ func (s *Server) jsonError(w http.ResponseWriter, msg string, status int) {
 // HandleRoot shows a dashboard
 func (s *Server) HandleRoot(w http.ResponseWriter, r *http.Request) {
 	q := dbgen.New(s.DB)
-	count, _ := q.CountEvents(r.Context())
-	events, _ := q.GetRecentEvents(r.Context(), 50)
+	count, _ := q.CountCurrentEvents(r.Context())
+	events, _ := q.GetRecentEvents(r.Context(), 500)
+	archives, _ := q.GetArchives(r.Context())
 
 	data := struct {
 		Hostname   string
 		EventCount int64
 		Events     []dbgen.GetRecentEventsRow
+		Archives   []dbgen.Archive
+		ArchiveID  int64
 	}{
 		Hostname:   s.Hostname,
 		EventCount: count,
 		Events:     events,
+		Archives:   archives,
+		ArchiveID:  0,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -361,6 +454,176 @@ func (s *Server) HandleRoot(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("render template", "error", err)
 		http.Error(w, "template error", http.StatusInternalServerError)
 	}
+}
+
+// HandleArchive shows archived events
+func (s *Server) HandleArchive(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid archive id", http.StatusBadRequest)
+		return
+	}
+
+	q := dbgen.New(s.DB)
+	archive, err := q.GetArchiveByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, "archive not found", http.StatusNotFound)
+		return
+	}
+
+	events, _ := q.GetArchivedEvents(r.Context(), &id)
+	archives, _ := q.GetArchives(r.Context())
+
+	data := struct {
+		Hostname   string
+		EventCount int64
+		Events     []dbgen.GetArchivedEventsRow
+		Archives   []dbgen.Archive
+		ArchiveID  int64
+		Archive    dbgen.Archive
+	}{
+		Hostname:   s.Hostname,
+		EventCount: archive.EventCount,
+		Events:     events,
+		Archives:   archives,
+		ArchiveID:  id,
+		Archive:    archive,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.renderTemplate(w, "archive.html", data); err != nil {
+		slog.Warn("render template", "error", err)
+		http.Error(w, "template error", http.StatusInternalServerError)
+	}
+}
+
+// HandleClean archives current events
+func (s *Server) HandleClean(w http.ResponseWriter, r *http.Request) {
+	q := dbgen.New(s.DB)
+	
+	// Count current events
+	count, err := q.CountCurrentEvents(r.Context())
+	if err != nil || count == 0 {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	// Create archive
+	now := time.Now()
+	name := now.Format("2006-01-02 15:04:05")
+	archiveID, err := q.CreateArchive(r.Context(), dbgen.CreateArchiveParams{
+		Name:       &name,
+		EventCount: count,
+		CreatedAt:  now,
+	})
+	if err != nil {
+		slog.Error("failed to create archive", "error", err)
+		http.Error(w, "failed to create archive", http.StatusInternalServerError)
+		return
+	}
+
+	// Move events to archive
+	err = q.ArchiveCurrentEvents(r.Context(), &archiveID)
+	if err != nil {
+		slog.Error("failed to archive events", "error", err)
+		http.Error(w, "failed to archive events", http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("archived events", "archive_id", archiveID, "count", count)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// HandleJsonFile serves JSON file for download
+func (s *Server) HandleJsonFile(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid event id", http.StatusBadRequest)
+		return
+	}
+
+	q := dbgen.New(s.DB)
+	event, err := q.GetEventByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, "event not found", http.StatusNotFound)
+		return
+	}
+
+	if event.JsonFilename == nil || *event.JsonFilename == "" {
+		// Return raw JSON from database
+		if event.RawJson != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%d.json"`, id))
+			w.Write([]byte(*event.RawJson))
+			return
+		}
+		http.Error(w, "no JSON available", http.StatusNotFound)
+		return
+	}
+
+	jsonPath := filepath.Join(s.DataDir, "json", *event.JsonFilename)
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		// Fallback to database
+		if event.RawJson != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, *event.JsonFilename))
+			w.Write([]byte(*event.RawJson))
+			return
+		}
+		http.Error(w, "JSON file not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, *event.JsonFilename))
+	w.Write(data)
+}
+
+// HandleRawJson returns raw JSON for display
+func (s *Server) HandleRawJson(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid event id", http.StatusBadRequest)
+		return
+	}
+
+	q := dbgen.New(s.DB)
+	event, err := q.GetEventByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, "event not found", http.StatusNotFound)
+		return
+	}
+
+	if event.RawJson == nil {
+		http.Error(w, "no JSON available", http.StatusNotFound)
+		return
+	}
+
+	// Pretty print JSON
+	var prettyJSON map[string]any
+	if err := json.Unmarshal([]byte(*event.RawJson), &prettyJSON); err == nil {
+		// Remove large base64 images for display
+		if imgArr, ok := prettyJSON["ImageArray"].([]any); ok {
+			for _, img := range imgArr {
+				if imgMap, ok := img.(map[string]any); ok {
+					if _, has := imgMap["BinaryImage"]; has {
+						imgMap["BinaryImage"] = "[base64 data omitted]"
+					}
+				}
+			}
+		}
+		formatted, _ := json.MarshalIndent(prettyJSON, "", "  ")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(formatted)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(*event.RawJson))
 }
 
 // HandleEvent shows a single event
@@ -438,6 +701,10 @@ func (s *Server) Serve(addr string) error {
 	mux.HandleFunc("POST /api", s.HandleAPI)
 	mux.HandleFunc("GET /event/{id}", s.HandleEvent)
 	mux.HandleFunc("GET /image/{id}", s.HandleImage)
+	mux.HandleFunc("GET /archive/{id}", s.HandleArchive)
+	mux.HandleFunc("POST /clean", s.HandleClean)
+	mux.HandleFunc("GET /json/{id}", s.HandleRawJson)
+	mux.HandleFunc("GET /json/{id}/download", s.HandleJsonFile)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(s.StaticDir))))
 	slog.Info("starting server", "addr", addr)
 	return http.ListenAndServe(addr, mux)
