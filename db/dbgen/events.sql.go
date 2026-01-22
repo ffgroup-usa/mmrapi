@@ -146,8 +146,10 @@ SELECT
     e.vehicle_make, e.vehicle_model, e.vehicle_color, e.vehicle_type,
     e.plate_confidence, e.confidence_mmr, e.confidence_color,
     e.json_filename,
-    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as first_image_id,
-    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as second_image_id
+    COALESCE((SELECT id FROM images WHERE event_id = e.id AND image_type = 'plate' LIMIT 1),
+             (SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as plate_image_id,
+    COALESCE((SELECT id FROM images WHERE event_id = e.id AND image_type = 'vehicle' LIMIT 1),
+             (SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as vehicle_image_id
 FROM events e
 WHERE e.archive_id = ?
 ORDER BY e.created_at DESC
@@ -172,8 +174,8 @@ type GetArchivedEventsRow struct {
 	ConfidenceMmr    *string     `json:"confidence_mmr"`
 	ConfidenceColor  *string     `json:"confidence_color"`
 	JsonFilename     *string     `json:"json_filename"`
-	FirstImageID     interface{} `json:"first_image_id"`
-	SecondImageID    interface{} `json:"second_image_id"`
+	PlateImageID     interface{} `json:"plate_image_id"`
+	VehicleImageID   interface{} `json:"vehicle_image_id"`
 }
 
 func (q *Queries) GetArchivedEvents(ctx context.Context, archiveID *int64) ([]GetArchivedEventsRow, error) {
@@ -204,8 +206,8 @@ func (q *Queries) GetArchivedEvents(ctx context.Context, archiveID *int64) ([]Ge
 			&i.ConfidenceMmr,
 			&i.ConfidenceColor,
 			&i.JsonFilename,
-			&i.FirstImageID,
-			&i.SecondImageID,
+			&i.PlateImageID,
+			&i.VehicleImageID,
 		); err != nil {
 			return nil, err
 		}
@@ -373,8 +375,10 @@ SELECT
     e.vehicle_make, e.vehicle_model, e.vehicle_color, e.vehicle_type,
     e.plate_confidence, e.confidence_mmr, e.confidence_color,
     e.json_filename,
-    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as first_image_id,
-    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as second_image_id
+    COALESCE((SELECT id FROM images WHERE event_id = e.id AND image_type = 'plate' LIMIT 1),
+             (SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as plate_image_id,
+    COALESCE((SELECT id FROM images WHERE event_id = e.id AND image_type = 'vehicle' LIMIT 1),
+             (SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as vehicle_image_id
 FROM events e
 WHERE e.archive_id IS NULL
 ORDER BY e.created_at DESC
@@ -400,8 +404,8 @@ type GetRecentEventsRow struct {
 	ConfidenceMmr    *string     `json:"confidence_mmr"`
 	ConfidenceColor  *string     `json:"confidence_color"`
 	JsonFilename     *string     `json:"json_filename"`
-	FirstImageID     interface{} `json:"first_image_id"`
-	SecondImageID    interface{} `json:"second_image_id"`
+	PlateImageID     interface{} `json:"plate_image_id"`
+	VehicleImageID   interface{} `json:"vehicle_image_id"`
 }
 
 func (q *Queries) GetRecentEvents(ctx context.Context, limit int64) ([]GetRecentEventsRow, error) {
@@ -432,8 +436,8 @@ func (q *Queries) GetRecentEvents(ctx context.Context, limit int64) ([]GetRecent
 			&i.ConfidenceMmr,
 			&i.ConfidenceColor,
 			&i.JsonFilename,
-			&i.FirstImageID,
-			&i.SecondImageID,
+			&i.PlateImageID,
+			&i.VehicleImageID,
 		); err != nil {
 			return nil, err
 		}

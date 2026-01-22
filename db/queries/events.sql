@@ -20,8 +20,10 @@ SELECT
     e.vehicle_make, e.vehicle_model, e.vehicle_color, e.vehicle_type,
     e.plate_confidence, e.confidence_mmr, e.confidence_color,
     e.json_filename,
-    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as first_image_id,
-    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as second_image_id
+    COALESCE((SELECT id FROM images WHERE event_id = e.id AND image_type = 'plate' LIMIT 1),
+             (SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as plate_image_id,
+    COALESCE((SELECT id FROM images WHERE event_id = e.id AND image_type = 'vehicle' LIMIT 1),
+             (SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as vehicle_image_id
 FROM events e
 WHERE e.archive_id IS NULL
 ORDER BY e.created_at DESC
@@ -34,8 +36,10 @@ SELECT
     e.vehicle_make, e.vehicle_model, e.vehicle_color, e.vehicle_type,
     e.plate_confidence, e.confidence_mmr, e.confidence_color,
     e.json_filename,
-    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as first_image_id,
-    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as second_image_id
+    COALESCE((SELECT id FROM images WHERE event_id = e.id AND image_type = 'plate' LIMIT 1),
+             (SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as plate_image_id,
+    COALESCE((SELECT id FROM images WHERE event_id = e.id AND image_type = 'vehicle' LIMIT 1),
+             (SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as vehicle_image_id
 FROM events e
 WHERE e.archive_id = ?
 ORDER BY e.created_at DESC;

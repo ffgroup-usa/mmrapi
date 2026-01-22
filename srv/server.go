@@ -79,6 +79,10 @@ type IncomingEvent struct {
 		IPAddress    string `json:"IPAddress"`
 	} `json:"camera_info"`
 
+	// Image file paths (for download filenames)
+	ImageFile  string `json:"imageFile"`  // Usually vehicle/roi image
+	ImageFile2 string `json:"imageFile2"` // Usually plate/lpup image
+
 	// Images embedded in JSON
 	ImageArray []struct {
 		ImageType   string `json:"ImageType"`
@@ -335,9 +339,18 @@ func (s *Server) HandleAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Save uploaded images
 	for i, img := range uploadedImages {
+		// Detect image type from filename
+		imgType := "uploaded"
+		lowerName := strings.ToLower(img.Filename)
+		if strings.Contains(lowerName, "lpup") || strings.Contains(lowerName, "plate") {
+			imgType = "plate"
+		} else if strings.Contains(lowerName, "roi") || strings.Contains(lowerName, "vehicle") {
+			imgType = "vehicle"
+		}
+		
 		imgID, err := s.insertImageWithID(r.Context(), q, dbgen.InsertImageParams{
 			EventID:   eventID,
-			ImageType: ptr("uploaded"),
+			ImageType: ptr(imgType),
 			Filename:  &img.Filename,
 			ImageData: img.Data,
 			CreatedAt: now,
@@ -693,6 +706,39 @@ func (s *Server) HandleImage(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+func (s *Server) HandleImageDownload(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid image id", http.StatusBadRequest)
+		return
+	}
+
+	q := dbgen.New(s.DB)
+	imgInfo, err := q.GetImageWithFilename(r.Context(), id)
+	if err != nil {
+		http.Error(w, "image not found", http.StatusNotFound)
+		return
+	}
+
+	data, err := q.GetImageData(r.Context(), id)
+	if err != nil {
+		http.Error(w, "image data not found", http.StatusNotFound)
+		return
+	}
+
+	// Use original filename if available
+	filename := fmt.Sprintf("image_%d.jpg", id)
+	if imgInfo.Filename != nil && *imgInfo.Filename != "" {
+		filename = filepath.Base(*imgInfo.Filename)
+	}
+
+	contentType := http.DetectContentType(data)
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Write(data)
+}
+
 func (s *Server) renderTemplate(w http.ResponseWriter, name string, data any) error {
 	path := filepath.Join(s.TemplatesDir, name)
 	tmpl, err := template.ParseFiles(path)
@@ -770,6 +816,7 @@ func (s *Server) Serve(addr string) error {
 	mux.HandleFunc("GET /api/events", s.HandleEventsAPI)
 	mux.HandleFunc("GET /event/{id}", s.HandleEvent)
 	mux.HandleFunc("GET /image/{id}", s.HandleImage)
+	mux.HandleFunc("GET /image/{id}/download", s.HandleImageDownload)
 	mux.HandleFunc("GET /archive/{id}", s.HandleArchive)
 	mux.HandleFunc("POST /archive/{id}/delete", s.HandleDeleteArchive)
 	mux.HandleFunc("POST /clean", s.HandleClean)

@@ -200,10 +200,10 @@
                     <td>{{if .VehicleType}}{{.VehicleType}}{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .VehicleColor}}<span class="has-tooltip" {{if .ConfidenceColor}}title="Confidence: {{.ConfidenceColor}}"{{end}}>{{.VehicleColor}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
                     <td class="img-cell" onclick="event.stopPropagation();">
-                        {{if gt .SecondImageID 0}}
-                        <img class="img-icon" src="/image/{{.SecondImageID}}" alt="LP" onclick="showImage({{.SecondImageID}}, {{.FirstImageID}})">
-                        {{else if gt .FirstImageID 0}}
-                        <img class="img-icon" src="/image/{{.FirstImageID}}" alt="LP" onclick="showImage({{.FirstImageID}}, {{.FirstImageID}})">
+                        {{if gt .PlateImageID 0}}
+                        <img class="img-icon" src="/image/{{.PlateImageID}}" alt="LP" onclick="showImage({{.PlateImageID}}, {{.VehicleImageID}})">
+                        {{else if gt .VehicleImageID 0}}
+                        <img class="img-icon" src="/image/{{.VehicleImageID}}" alt="LP" onclick="showImage({{.VehicleImageID}}, {{.VehicleImageID}})">
                         {{else}}
                         <span class="empty">-</span>
                         {{end}}
@@ -264,7 +264,7 @@
         function showImage(thumbId, fullId) {
             document.getElementById('imageModal').classList.add('active');
             document.getElementById('modalImage').src = '/image/' + fullId;
-            document.getElementById('imageDownload').href = '/image/' + fullId;
+            document.getElementById('imageDownload').href = '/image/' + fullId + '/download';
         }
 
         function closeModal(id) {

@@ -212,10 +212,10 @@
                     <td>{{if .VehicleType}}{{.VehicleType}}{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .VehicleColor}}<span class="has-tooltip" {{if .ConfidenceColor}}title="Confidence: {{.ConfidenceColor}}"{{end}}>{{.VehicleColor}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
                     <td class="img-cell" onclick="event.stopPropagation();">
-                        {{if gt .SecondImageID 0}}
-                        <img class="img-icon" src="/image/{{.SecondImageID}}" alt="LP" onclick="showImage({{.SecondImageID}}, {{.FirstImageID}})">
-                        {{else if gt .FirstImageID 0}}
-                        <img class="img-icon" src="/image/{{.FirstImageID}}" alt="LP" onclick="showImage({{.FirstImageID}}, {{.FirstImageID}})">
+                        {{if gt .PlateImageID 0}}
+                        <img class="img-icon" src="/image/{{.PlateImageID}}" alt="LP" onclick="showImage({{.PlateImageID}}, {{.VehicleImageID}})">
+                        {{else if gt .VehicleImageID 0}}
+                        <img class="img-icon" src="/image/{{.VehicleImageID}}" alt="LP" onclick="showImage({{.VehicleImageID}}, {{.VehicleImageID}})">
                         {{else}}
                         <span class="empty">-</span>
                         {{end}}
@@ -276,7 +276,7 @@
         function showImage(thumbId, fullId) {
             document.getElementById('imageModal').classList.add('active');
             document.getElementById('modalImage').src = '/image/' + fullId;
-            document.getElementById('imageDownload').href = '/image/' + fullId;
+            document.getElementById('imageDownload').href = '/image/' + fullId + '/download';
         }
 
         function closeModal(id) {
@@ -324,11 +324,11 @@
             return val || '<span class="empty">-</span>';
         }
 
-        function formatImage(firstId, secondId) {
-            if (secondId > 0) {
-                return `<img class="img-icon" src="/image/${secondId}" alt="LP" onclick="event.stopPropagation(); showImage(${secondId}, ${firstId})">`;
-            } else if (firstId > 0) {
-                return `<img class="img-icon" src="/image/${firstId}" alt="LP" onclick="event.stopPropagation(); showImage(${firstId}, ${firstId})">`;
+        function formatImage(plateId, vehicleId) {
+            if (plateId > 0) {
+                return `<img class="img-icon" src="/image/${plateId}" alt="LP" onclick="event.stopPropagation(); showImage(${plateId}, ${vehicleId})">`;
+            } else if (vehicleId > 0) {
+                return `<img class="img-icon" src="/image/${vehicleId}" alt="LP" onclick="event.stopPropagation(); showImage(${vehicleId}, ${vehicleId})">`;
             }
             return '<span class="empty">-</span>';
         }
@@ -375,7 +375,7 @@
                             <td>${formatWithTooltip(e.vehicle_model, e.confidence_mmr)}</td>
                             <td>${formatVal(e.vehicle_type)}</td>
                             <td>${formatWithTooltip(e.vehicle_color, e.confidence_color)}</td>
-                            <td class="img-cell" onclick="event.stopPropagation();">${formatImage(e.first_image_id, e.second_image_id)}</td>
+                            <td class="img-cell" onclick="event.stopPropagation();">${formatImage(e.plate_image_id, e.vehicle_image_id)}</td>
                         `;
                         tbody.appendChild(tr);
                     });
