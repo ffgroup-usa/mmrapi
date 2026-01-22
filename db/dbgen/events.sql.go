@@ -87,6 +87,15 @@ func (q *Queries) DeleteArchiveImages(ctx context.Context, archiveID *int64) err
 	return err
 }
 
+const deleteCompareResultsByArchive = `-- name: DeleteCompareResultsByArchive :exec
+DELETE FROM compare_results WHERE archive_id = ?
+`
+
+func (q *Queries) DeleteCompareResultsByArchive(ctx context.Context, archiveID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteCompareResultsByArchive, archiveID)
+	return err
+}
+
 const getArchiveByID = `-- name: GetArchiveByID :one
 SELECT id, name, event_count, created_at FROM archives WHERE id = ?
 `
@@ -241,6 +250,39 @@ func (q *Queries) GetArchives(ctx context.Context) ([]Archive, error) {
 			&i.EventCount,
 			&i.CreatedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getCompareResults = `-- name: GetCompareResults :many
+SELECT event_id, field, is_incorrect FROM compare_results WHERE archive_id = ?
+`
+
+type GetCompareResultsRow struct {
+	EventID     int64  `json:"event_id"`
+	Field       string `json:"field"`
+	IsIncorrect bool   `json:"is_incorrect"`
+}
+
+func (q *Queries) GetCompareResults(ctx context.Context, archiveID int64) ([]GetCompareResultsRow, error) {
+	rows, err := q.db.QueryContext(ctx, getCompareResults, archiveID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetCompareResultsRow{}
+	for rows.Next() {
+		var i GetCompareResultsRow
+		if err := rows.Scan(&i.EventID, &i.Field, &i.IsIncorrect); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -595,6 +637,31 @@ func (q *Queries) SearchByPlate(ctx context.Context, arg SearchByPlateParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const setCompareResult = `-- name: SetCompareResult :exec
+INSERT INTO compare_results (archive_id, event_id, field, is_incorrect, updated_at)
+VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+ON CONFLICT(archive_id, event_id, field) DO UPDATE SET
+    is_incorrect = excluded.is_incorrect,
+    updated_at = CURRENT_TIMESTAMP
+`
+
+type SetCompareResultParams struct {
+	ArchiveID   int64  `json:"archive_id"`
+	EventID     int64  `json:"event_id"`
+	Field       string `json:"field"`
+	IsIncorrect bool   `json:"is_incorrect"`
+}
+
+func (q *Queries) SetCompareResult(ctx context.Context, arg SetCompareResultParams) error {
+	_, err := q.db.ExecContext(ctx, setCompareResult,
+		arg.ArchiveID,
+		arg.EventID,
+		arg.Field,
+		arg.IsIncorrect,
+	)
+	return err
 }
 
 const updateEventJsonFilename = `-- name: UpdateEventJsonFilename :exec

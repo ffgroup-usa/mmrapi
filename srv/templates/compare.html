@@ -211,7 +211,7 @@
             </span>
         </div>
 
-        <form id="exportForm" method="POST" action="/archive/{{.Archive.ID}}/compare/export">
+
         <div class="table-wrapper">
         <table class="spreadsheet" id="compareTable">
             <thead>
@@ -235,8 +235,8 @@
                 <tr data-event-id="{{.ID}}">
                     <td>{{if .EventDatetime}}{{.EventDatetime}}{{else}}{{.CreatedAt.Format "20060102 150405"}}{{end}}</td>
                     <td>{{.CarID}}</td>
-                    <td class="value-cell" data-field="plate">{{if .PlateUtf8}}<span class="plate">{{.PlateUtf8}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td class="check-cell"><input type="checkbox" name="incorrect" value="plate_{{.ID}}" data-field="plate" onchange="toggleIncorrect(this, 'plate'); updateStats();"></td>
+                    <td class="value-cell{{if index $.Incorrect (printf "%d_plate" .ID)}} incorrect{{end}}" data-field="plate">{{if .PlateUtf8}}<span class="plate">{{.PlateUtf8}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td class="check-cell"><input type="checkbox" data-event-id="{{.ID}}" data-field="plate" {{if index $.Incorrect (printf "%d_plate" .ID)}}checked{{end}} onchange="handleToggle(this)"></td>
                     <td class="img-cell">
                         {{if gt .PlateImageID 0}}
                         <img class="img-icon" src="/image/{{.PlateImageID}}" alt="LP" onclick="showImage('/image/{{.PlateImageID}}')">
@@ -251,18 +251,18 @@
                              onmouseleave="cancelHoverTimer()">
                         {{else}}<span class="empty">-</span>{{end}}
                     </td>
-                    <td class="value-cell" data-field="maker">{{if .VehicleMake}}{{.VehicleMake}}{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td class="check-cell"><input type="checkbox" name="incorrect" value="maker_{{.ID}}" data-field="maker" onchange="toggleIncorrect(this, 'maker'); updateStats();"></td>
-                    <td class="value-cell" data-field="model">{{if .VehicleModel}}{{.VehicleModel}}{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td class="check-cell"><input type="checkbox" name="incorrect" value="model_{{.ID}}" data-field="model" onchange="toggleIncorrect(this, 'model'); updateStats();"></td>
-                    <td class="value-cell" data-field="color">{{if .VehicleColor}}{{.VehicleColor}}{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td class="check-cell"><input type="checkbox" name="incorrect" value="color_{{.ID}}" data-field="color" onchange="toggleIncorrect(this, 'color'); updateStats();"></td>
+                    <td class="value-cell{{if index $.Incorrect (printf "%d_maker" .ID)}} incorrect{{end}}" data-field="maker">{{if .VehicleMake}}{{.VehicleMake}}{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td class="check-cell"><input type="checkbox" data-event-id="{{.ID}}" data-field="maker" {{if index $.Incorrect (printf "%d_maker" .ID)}}checked{{end}} onchange="handleToggle(this)"></td>
+                    <td class="value-cell{{if index $.Incorrect (printf "%d_model" .ID)}} incorrect{{end}}" data-field="model">{{if .VehicleModel}}{{.VehicleModel}}{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td class="check-cell"><input type="checkbox" data-event-id="{{.ID}}" data-field="model" {{if index $.Incorrect (printf "%d_model" .ID)}}checked{{end}} onchange="handleToggle(this)"></td>
+                    <td class="value-cell{{if index $.Incorrect (printf "%d_color" .ID)}} incorrect{{end}}" data-field="color">{{if .VehicleColor}}{{.VehicleColor}}{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td class="check-cell"><input type="checkbox" data-event-id="{{.ID}}" data-field="color" {{if index $.Incorrect (printf "%d_color" .ID)}}checked{{end}} onchange="handleToggle(this)"></td>
                 </tr>
                 {{end}}
             </tbody>
         </table>
         </div>
-        </form>
+
 
         <div class="statistics">
             <h3>📊 Recognition Accuracy Statistics</h3>
@@ -316,16 +316,30 @@
 
     <script>
         const totalRows = document.querySelectorAll('#compareTable tbody tr').length;
+        const archiveID = {{.Archive.ID}};
         let hoverTimer = null;
 
-        function toggleIncorrect(checkbox, field) {
+        function handleToggle(checkbox) {
+            const eventId = parseInt(checkbox.dataset.eventId);
+            const field = checkbox.dataset.field;
+            const incorrect = checkbox.checked;
+
+            // Update UI immediately
             const row = checkbox.closest('tr');
             const valueCell = row.querySelector(`td[data-field="${field}"]`);
-            if (checkbox.checked) {
+            if (incorrect) {
                 valueCell.classList.add('incorrect');
             } else {
                 valueCell.classList.remove('incorrect');
             }
+            updateStats();
+
+            // Save to server
+            fetch(`/archive/${archiveID}/compare/toggle`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({event_id: eventId, field: field, incorrect: incorrect})
+            }).catch(err => console.error('Failed to save:', err));
         }
 
         function updateStats() {
@@ -373,7 +387,7 @@
         });
 
         function exportToXLSX() {
-            document.getElementById('exportForm').submit();
+            window.location.href = `/archive/${archiveID}/compare/export`;
         }
 
         // Initialize stats on page load

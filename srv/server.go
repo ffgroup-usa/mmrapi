@@ -560,12 +560,24 @@ func (s *Server) HandleCompare(w http.ResponseWriter, r *http.Request) {
 
 	events, _ := q.GetArchivedEvents(r.Context(), &id)
 
+	// Load saved compare results
+	results, _ := q.GetCompareResults(r.Context(), id)
+	incorrectMap := make(map[string]bool) // key: "eventID_field"
+	for _, r := range results {
+		if r.IsIncorrect {
+			key := fmt.Sprintf("%d_%s", r.EventID, r.Field)
+			incorrectMap[key] = true
+		}
+	}
+
 	data := struct {
-		Archive dbgen.Archive
-		Events  []dbgen.GetArchivedEventsRow
+		Archive     dbgen.Archive
+		Events      []dbgen.GetArchivedEventsRow
+		Incorrect   map[string]bool
 	}{
-		Archive: archive,
-		Events:  events,
+		Archive:   archive,
+		Events:    events,
+		Incorrect: incorrectMap,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -573,6 +585,49 @@ func (s *Server) HandleCompare(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("render template", "error", err)
 		http.Error(w, "template error", http.StatusInternalServerError)
 	}
+}
+
+// HandleCompareToggle saves a compare result toggle via AJAX
+func (s *Server) HandleCompareToggle(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	archiveID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid archive id", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		EventID   int64  `json:"event_id"`
+		Field     string `json:"field"`
+		Incorrect bool   `json:"incorrect"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	// Validate field
+	validFields := map[string]bool{"plate": true, "maker": true, "model": true, "color": true}
+	if !validFields[req.Field] {
+		http.Error(w, "invalid field", http.StatusBadRequest)
+		return
+	}
+
+	q := dbgen.New(s.DB)
+	err = q.SetCompareResult(r.Context(), dbgen.SetCompareResultParams{
+		ArchiveID:   archiveID,
+		EventID:     req.EventID,
+		Field:       req.Field,
+		IsIncorrect: req.Incorrect,
+	})
+	if err != nil {
+		slog.Warn("failed to save compare result", "error", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"ok":true}`))
 }
 
 // HandleCompareExport exports compare data to XLSX with embedded images
@@ -593,36 +648,26 @@ func (s *Server) HandleCompareExport(w http.ResponseWriter, r *http.Request) {
 
 	events, _ := q.GetArchivedEvents(r.Context(), &id)
 
-	// Parse form data for incorrect checkboxes
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
-		return
-	}
-
-	// Get incorrect items from form (format: "plate_123", "maker_123", etc.)
+	// Load saved compare results from database
+	results, _ := q.GetCompareResults(r.Context(), id)
 	incorrectPlates := make(map[int64]bool)
 	incorrectMakers := make(map[int64]bool)
 	incorrectModels := make(map[int64]bool)
 	incorrectColors := make(map[int64]bool)
 
-	for _, v := range r.Form["incorrect"] {
-		parts := strings.SplitN(v, "_", 2)
-		if len(parts) != 2 {
+	for _, r := range results {
+		if !r.IsIncorrect {
 			continue
 		}
-		eventID, err := strconv.ParseInt(parts[1], 10, 64)
-		if err != nil {
-			continue
-		}
-		switch parts[0] {
+		switch r.Field {
 		case "plate":
-			incorrectPlates[eventID] = true
+			incorrectPlates[r.EventID] = true
 		case "maker":
-			incorrectMakers[eventID] = true
+			incorrectMakers[r.EventID] = true
 		case "model":
-			incorrectModels[eventID] = true
+			incorrectModels[r.EventID] = true
 		case "color":
-			incorrectColors[eventID] = true
+			incorrectColors[r.EventID] = true
 		}
 	}
 
@@ -1121,7 +1166,8 @@ func (s *Server) Serve(addr string) error {
 	mux.HandleFunc("GET /image/{id}/download", s.HandleImageDownload)
 	mux.HandleFunc("GET /archive/{id}", s.HandleArchive)
 	mux.HandleFunc("GET /archive/{id}/compare", s.HandleCompare)
-	mux.HandleFunc("POST /archive/{id}/compare/export", s.HandleCompareExport)
+	mux.HandleFunc("GET /archive/{id}/compare/export", s.HandleCompareExport)
+	mux.HandleFunc("POST /archive/{id}/compare/toggle", s.HandleCompareToggle)
 	mux.HandleFunc("POST /archive/{id}/delete", s.HandleDeleteArchive)
 	mux.HandleFunc("POST /clean", s.HandleClean)
 	mux.HandleFunc("GET /json/{id}", s.HandleRawJson)

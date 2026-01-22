@@ -104,3 +104,16 @@ DELETE FROM events WHERE archive_id = ?;
 
 -- name: DeleteArchive :exec
 DELETE FROM archives WHERE id = ?;
+
+-- name: SetCompareResult :exec
+INSERT INTO compare_results (archive_id, event_id, field, is_incorrect, updated_at)
+VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+ON CONFLICT(archive_id, event_id, field) DO UPDATE SET
+    is_incorrect = excluded.is_incorrect,
+    updated_at = CURRENT_TIMESTAMP;
+
+-- name: GetCompareResults :many
+SELECT event_id, field, is_incorrect FROM compare_results WHERE archive_id = ?;
+
+-- name: DeleteCompareResultsByArchive :exec
+DELETE FROM compare_results WHERE archive_id = ?;

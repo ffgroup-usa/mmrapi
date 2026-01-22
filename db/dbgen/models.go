@@ -15,6 +15,16 @@ type Archive struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+type CompareResult struct {
+	ID          int64      `json:"id"`
+	ArchiveID   int64      `json:"archive_id"`
+	EventID     int64      `json:"event_id"`
+	Field       string     `json:"field"`
+	IsIncorrect bool       `json:"is_incorrect"`
+	CreatedAt   *time.Time `json:"created_at"`
+	UpdatedAt   *time.Time `json:"updated_at"`
+}
+
 type Event struct {
 	ID               int64     `json:"id"`
 	CarID            string    `json:"car_id"`
