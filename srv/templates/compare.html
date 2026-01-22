@@ -246,6 +246,7 @@
                         {{if gt .VehicleImageID 0}}
                         <img class="vehicle-thumb" src="/image/{{.VehicleImageID}}" alt="Vehicle" 
                              data-full-src="/image/{{.VehicleImageID}}"
+                             onclick="showImage(this.dataset.fullSrc)"
                              onmouseenter="startHoverTimer(this)" 
                              onmouseleave="cancelHoverTimer()">
                         {{else}}<span class="empty">-</span>{{end}}
