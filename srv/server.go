@@ -522,6 +522,39 @@ func (s *Server) HandleArchive(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// HandleCompare shows compare page for an archive
+func (s *Server) HandleCompare(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid archive id", http.StatusBadRequest)
+		return
+	}
+
+	q := dbgen.New(s.DB)
+	archive, err := q.GetArchiveByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, "archive not found", http.StatusNotFound)
+		return
+	}
+
+	events, _ := q.GetArchivedEvents(r.Context(), &id)
+
+	data := struct {
+		Archive dbgen.Archive
+		Events  []dbgen.GetArchivedEventsRow
+	}{
+		Archive: archive,
+		Events:  events,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.renderTemplate(w, "compare.html", data); err != nil {
+		slog.Warn("render template", "error", err)
+		http.Error(w, "template error", http.StatusInternalServerError)
+	}
+}
+
 // HandleClean archives current events
 func (s *Server) HandleClean(w http.ResponseWriter, r *http.Request) {
 	q := dbgen.New(s.DB)
@@ -818,6 +851,7 @@ func (s *Server) Serve(addr string) error {
 	mux.HandleFunc("GET /image/{id}", s.HandleImage)
 	mux.HandleFunc("GET /image/{id}/download", s.HandleImageDownload)
 	mux.HandleFunc("GET /archive/{id}", s.HandleArchive)
+	mux.HandleFunc("GET /archive/{id}/compare", s.HandleCompare)
 	mux.HandleFunc("POST /archive/{id}/delete", s.HandleDeleteArchive)
 	mux.HandleFunc("POST /clean", s.HandleClean)
 	mux.HandleFunc("GET /json/{id}", s.HandleRawJson)

@@ -19,6 +19,12 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .stats span { font-size: 1.3em; color: #2196F3; font-weight: bold; }
+        .btn-compare {
+            padding: 10px 20px; border-radius: 6px;
+            background: #17a2b8; color: white;
+            text-decoration: none; font-weight: 500;
+        }
+        .btn-compare:hover { background: #138496; text-decoration: none; }
         .archives {
             background: #fff; padding: 10px 15px; border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -153,6 +159,7 @@
             <div class="stats">
                 <span>{{.EventCount}}</span> events
             </div>
+            <a href="/archive/{{.Archive.ID}}/compare" class="btn-compare">🔍 Compare</a>
         </div>
         
         <div class="archives">
