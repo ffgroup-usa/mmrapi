@@ -27,6 +27,13 @@
         .archives a { margin-right: 10px; color: #1a73e8; text-decoration: none; font-size: 13px; }
         .archives a:hover { text-decoration: underline; }
         .archives a.active { font-weight: bold; }
+        .archive-item { margin-right: 15px; white-space: nowrap; }
+        .delete-btn {
+            background: none; border: none; color: #dc3545;
+            cursor: pointer; font-size: 14px; font-weight: bold;
+            padding: 0 4px; margin-left: 2px;
+        }
+        .delete-btn:hover { color: #a71d2a; }
         .spreadsheet {
             width: 100%; border-collapse: collapse;
             background: #fff;
@@ -72,6 +79,11 @@
         }
         [title] { cursor: help; }
         .has-tooltip { border-bottom: 1px dotted #666; }
+        .state { padding: 2px 6px; border-radius: 10px; font-size: 11px; }
+        .state-new { background: #d4edda; color: #155724; }
+        .state-update { background: #cce5ff; color: #004085; }
+        .state-lost { background: #f8d7da; color: #721c24; }
+        .state-reliable { background: #fff3cd; color: #856404; }
         .table-wrapper {
             overflow-x: auto;
             max-height: 75vh;
@@ -147,7 +159,12 @@
             <strong>Archives:</strong>
             <a href="/">Current</a>
             {{range .Archives}}
-            <a href="/archive/{{.ID}}" {{if eq .ID $.ArchiveID}}class="active"{{end}}>{{.Name}} ({{.EventCount}})</a>
+            <span class="archive-item">
+                <a href="/archive/{{.ID}}" {{if eq .ID $.ArchiveID}}class="active"{{end}}>{{.Name}} ({{.EventCount}})</a>
+                <form method="POST" action="/archive/{{.ID}}/delete" style="display:inline;" onsubmit="return confirm('Delete archive {{.Name}} and all its files?');">
+                    <button type="submit" class="delete-btn" title="Delete archive">&times;</button>
+                </form>
+            </span>
             {{end}}
         </div>
         
@@ -158,8 +175,10 @@
                 <tr>
                     <th>TIMESTAMP</th>
                     <th>CAR_ID</th>
+                    <th>STATE</th>
                     <th>LPR_UTF8</th>
                     <th>COUNTRY</th>
+                    <th>REGION</th>
                     <th>CAR_MAKER</th>
                     <th>CAR_MODEL</th>
                     <th>CAR_M_TYPE</th>
@@ -172,8 +191,10 @@
                 <tr data-event-id="{{.ID}}" onclick="showJson({{.ID}})">
                     <td>{{if .EventDatetime}}{{.EventDatetime}}{{else}}{{.CreatedAt.Format "20060102 150405"}}{{end}}</td>
                     <td>{{.CarID}}</td>
+                    <td>{{if .CarState}}<span class="state state-{{.CarState}}">{{.CarState}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .PlateUtf8}}<span class="plate has-tooltip" {{if .PlateConfidence}}title="Confidence: {{.PlateConfidence}}"{{end}}>{{.PlateUtf8}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .PlateCountry}}{{.PlateCountry}}{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td>{{if .PlateRegionCode}}{{.PlateRegionCode}}{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .VehicleMake}}{{.VehicleMake}}{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .VehicleModel}}<span class="has-tooltip" {{if .ConfidenceMmr}}title="Confidence: {{.ConfidenceMmr}}"{{end}}>{{.VehicleModel}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .VehicleType}}{{.VehicleType}}{{else}}<span class="empty">-</span>{{end}}</td>

@@ -1,12 +1,12 @@
 -- name: InsertEvent :one
 INSERT INTO events (
     car_id, plate_utf8, car_state, sensor_provider_id,
-    event_datetime, capture_timestamp, plate_country, plate_region, plate_confidence,
+    event_datetime, capture_timestamp, plate_country, plate_region, plate_region_code, plate_confidence,
     geotag_lat, geotag_lon, vehicle_make, vehicle_model, vehicle_color,
     vehicle_type, confidence_mmr, confidence_color,
     camera_serial, camera_ip, raw_json, created_at
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 ) RETURNING id;
 
 -- name: InsertImage :exec
@@ -16,7 +16,7 @@ VALUES (?, ?, ?, ?, ?);
 -- name: GetRecentEvents :many
 SELECT 
     e.id, e.car_id, e.plate_utf8, e.car_state, e.sensor_provider_id, 
-    e.event_datetime, e.created_at, e.plate_country, e.plate_region,
+    e.event_datetime, e.created_at, e.plate_country, e.plate_region, e.plate_region_code,
     e.vehicle_make, e.vehicle_model, e.vehicle_color, e.vehicle_type,
     e.plate_confidence, e.confidence_mmr, e.confidence_color,
     e.json_filename,
@@ -30,7 +30,7 @@ LIMIT ?;
 -- name: GetArchivedEvents :many
 SELECT 
     e.id, e.car_id, e.plate_utf8, e.car_state, e.sensor_provider_id, 
-    e.event_datetime, e.created_at, e.plate_country, e.plate_region,
+    e.event_datetime, e.created_at, e.plate_country, e.plate_region, e.plate_region_code,
     e.vehicle_make, e.vehicle_model, e.vehicle_color, e.vehicle_type,
     e.plate_confidence, e.confidence_mmr, e.confidence_color,
     e.json_filename,
@@ -85,3 +85,18 @@ UPDATE images SET disk_filename = ? WHERE id = ?;
 
 -- name: GetImageWithFilename :one
 SELECT id, event_id, image_type, filename, disk_filename, created_at FROM images WHERE id = ?;
+
+-- name: GetArchivedEventFiles :many
+SELECT e.id, e.json_filename, i.disk_filename
+FROM events e
+LEFT JOIN images i ON i.event_id = e.id
+WHERE e.archive_id = ?;
+
+-- name: DeleteArchiveImages :exec
+DELETE FROM images WHERE event_id IN (SELECT id FROM events WHERE archive_id = ?);
+
+-- name: DeleteArchiveEvents :exec
+DELETE FROM events WHERE archive_id = ?;
+
+-- name: DeleteArchive :exec
+DELETE FROM archives WHERE id = ?;

@@ -38,10 +38,11 @@ type IncomingEvent struct {
 	CarId2 string `json:"carId"`
 
 	// Plate info
-	PlateUTF8   string `json:"plateUTF8"`
-	PlateText   string `json:"plateText"`
-	PlateRegion string `json:"plateRegion"`
-	PlateCountry string `json:"plateCountry"`
+	PlateUTF8       string `json:"plateUTF8"`
+	PlateText       string `json:"plateText"`
+	PlateRegion     string `json:"plateRegion"`
+	PlateRegionCode string `json:"plateRegionCode"`
+	PlateCountry    string `json:"plateCountry"`
 	PlateConfidence string `json:"plateConfidence"`
 
 	// State
@@ -287,6 +288,7 @@ func (s *Server) HandleAPI(w http.ResponseWriter, r *http.Request) {
 		CaptureTimestamp: ptrIfNotEmpty(event.CaptureTimestamp),
 		PlateCountry:     ptrIfNotEmpty(event.PlateCountry),
 		PlateRegion:      ptrIfNotEmpty(event.PlateRegion),
+		PlateRegionCode:  ptrIfNotEmpty(event.PlateRegionCode),
 		PlateConfidence:  plateConfidence,
 		GeotagLat:        geoLat,
 		GeotagLon:        geoLon,
@@ -703,14 +705,73 @@ func (s *Server) renderTemplate(w http.ResponseWriter, name string, data any) er
 	return nil
 }
 
+// HandleDeleteArchive deletes an archive and its files
+func (s *Server) HandleDeleteArchive(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid archive id", http.StatusBadRequest)
+		return
+	}
+
+	q := dbgen.New(s.DB)
+	
+	// Get files to delete
+	files, err := q.GetArchivedEventFiles(r.Context(), &id)
+	if err != nil {
+		slog.Warn("failed to get archive files", "error", err)
+	}
+
+	// Delete files from disk
+	for _, f := range files {
+		if f.JsonFilename != nil && *f.JsonFilename != "" {
+			jsonPath := filepath.Join(s.DataDir, "json", *f.JsonFilename)
+			os.Remove(jsonPath)
+		}
+		if f.DiskFilename != nil && *f.DiskFilename != "" {
+			imgPath := filepath.Join(s.DataDir, "images", *f.DiskFilename)
+			os.Remove(imgPath)
+		}
+	}
+
+	// Delete from database
+	if err := q.DeleteArchiveImages(r.Context(), &id); err != nil {
+		slog.Warn("failed to delete archive images", "error", err)
+	}
+	if err := q.DeleteArchiveEvents(r.Context(), &id); err != nil {
+		slog.Warn("failed to delete archive events", "error", err)
+	}
+	if err := q.DeleteArchive(r.Context(), id); err != nil {
+		slog.Warn("failed to delete archive", "error", err)
+	}
+
+	slog.Info("deleted archive", "id", id)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// HandleEventsAPI returns recent events as JSON for live updates
+func (s *Server) HandleEventsAPI(w http.ResponseWriter, r *http.Request) {
+	q := dbgen.New(s.DB)
+	events, err := q.GetRecentEvents(r.Context(), 500)
+	if err != nil {
+		s.jsonError(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(events)
+}
+
 // Serve starts the HTTP server
 func (s *Server) Serve(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.HandleRoot)
 	mux.HandleFunc("POST /api", s.HandleAPI)
+	mux.HandleFunc("GET /api/events", s.HandleEventsAPI)
 	mux.HandleFunc("GET /event/{id}", s.HandleEvent)
 	mux.HandleFunc("GET /image/{id}", s.HandleImage)
 	mux.HandleFunc("GET /archive/{id}", s.HandleArchive)
+	mux.HandleFunc("POST /archive/{id}/delete", s.HandleDeleteArchive)
 	mux.HandleFunc("POST /clean", s.HandleClean)
 	mux.HandleFunc("GET /json/{id}", s.HandleRawJson)
 	mux.HandleFunc("GET /json/{id}/download", s.HandleJsonFile)

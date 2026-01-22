@@ -60,6 +60,33 @@ func (q *Queries) CreateArchive(ctx context.Context, arg CreateArchiveParams) (i
 	return id, err
 }
 
+const deleteArchive = `-- name: DeleteArchive :exec
+DELETE FROM archives WHERE id = ?
+`
+
+func (q *Queries) DeleteArchive(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteArchive, id)
+	return err
+}
+
+const deleteArchiveEvents = `-- name: DeleteArchiveEvents :exec
+DELETE FROM events WHERE archive_id = ?
+`
+
+func (q *Queries) DeleteArchiveEvents(ctx context.Context, archiveID *int64) error {
+	_, err := q.db.ExecContext(ctx, deleteArchiveEvents, archiveID)
+	return err
+}
+
+const deleteArchiveImages = `-- name: DeleteArchiveImages :exec
+DELETE FROM images WHERE event_id IN (SELECT id FROM events WHERE archive_id = ?)
+`
+
+func (q *Queries) DeleteArchiveImages(ctx context.Context, archiveID *int64) error {
+	_, err := q.db.ExecContext(ctx, deleteArchiveImages, archiveID)
+	return err
+}
+
 const getArchiveByID = `-- name: GetArchiveByID :one
 SELECT id, name, event_count, created_at FROM archives WHERE id = ?
 `
@@ -76,10 +103,46 @@ func (q *Queries) GetArchiveByID(ctx context.Context, id int64) (Archive, error)
 	return i, err
 }
 
+const getArchivedEventFiles = `-- name: GetArchivedEventFiles :many
+SELECT e.id, e.json_filename, i.disk_filename
+FROM events e
+LEFT JOIN images i ON i.event_id = e.id
+WHERE e.archive_id = ?
+`
+
+type GetArchivedEventFilesRow struct {
+	ID           int64   `json:"id"`
+	JsonFilename *string `json:"json_filename"`
+	DiskFilename *string `json:"disk_filename"`
+}
+
+func (q *Queries) GetArchivedEventFiles(ctx context.Context, archiveID *int64) ([]GetArchivedEventFilesRow, error) {
+	rows, err := q.db.QueryContext(ctx, getArchivedEventFiles, archiveID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetArchivedEventFilesRow{}
+	for rows.Next() {
+		var i GetArchivedEventFilesRow
+		if err := rows.Scan(&i.ID, &i.JsonFilename, &i.DiskFilename); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getArchivedEvents = `-- name: GetArchivedEvents :many
 SELECT 
     e.id, e.car_id, e.plate_utf8, e.car_state, e.sensor_provider_id, 
-    e.event_datetime, e.created_at, e.plate_country, e.plate_region,
+    e.event_datetime, e.created_at, e.plate_country, e.plate_region, e.plate_region_code,
     e.vehicle_make, e.vehicle_model, e.vehicle_color, e.vehicle_type,
     e.plate_confidence, e.confidence_mmr, e.confidence_color,
     e.json_filename,
@@ -100,6 +163,7 @@ type GetArchivedEventsRow struct {
 	CreatedAt        time.Time   `json:"created_at"`
 	PlateCountry     *string     `json:"plate_country"`
 	PlateRegion      *string     `json:"plate_region"`
+	PlateRegionCode  *string     `json:"plate_region_code"`
 	VehicleMake      *string     `json:"vehicle_make"`
 	VehicleModel     *string     `json:"vehicle_model"`
 	VehicleColor     *string     `json:"vehicle_color"`
@@ -131,6 +195,7 @@ func (q *Queries) GetArchivedEvents(ctx context.Context, archiveID *int64) ([]Ge
 			&i.CreatedAt,
 			&i.PlateCountry,
 			&i.PlateRegion,
+			&i.PlateRegionCode,
 			&i.VehicleMake,
 			&i.VehicleModel,
 			&i.VehicleColor,
@@ -188,7 +253,7 @@ func (q *Queries) GetArchives(ctx context.Context) ([]Archive, error) {
 }
 
 const getEventByID = `-- name: GetEventByID :one
-SELECT id, car_id, plate_utf8, car_state, sensor_provider_id, event_datetime, capture_timestamp, plate_country, plate_region, plate_confidence, geotag_lat, geotag_lon, vehicle_make, vehicle_model, vehicle_color, camera_serial, camera_ip, raw_json, created_at, archive_id, json_filename, vehicle_type, confidence_mmr, confidence_color FROM events WHERE id = ?
+SELECT id, car_id, plate_utf8, car_state, sensor_provider_id, event_datetime, capture_timestamp, plate_country, plate_region, plate_confidence, geotag_lat, geotag_lon, vehicle_make, vehicle_model, vehicle_color, camera_serial, camera_ip, raw_json, created_at, archive_id, json_filename, vehicle_type, confidence_mmr, confidence_color, plate_region_code FROM events WHERE id = ?
 `
 
 func (q *Queries) GetEventByID(ctx context.Context, id int64) (Event, error) {
@@ -219,6 +284,7 @@ func (q *Queries) GetEventByID(ctx context.Context, id int64) (Event, error) {
 		&i.VehicleType,
 		&i.ConfidenceMmr,
 		&i.ConfidenceColor,
+		&i.PlateRegionCode,
 	)
 	return i, err
 }
@@ -303,7 +369,7 @@ func (q *Queries) GetImagesByEventID(ctx context.Context, eventID int64) ([]GetI
 const getRecentEvents = `-- name: GetRecentEvents :many
 SELECT 
     e.id, e.car_id, e.plate_utf8, e.car_state, e.sensor_provider_id, 
-    e.event_datetime, e.created_at, e.plate_country, e.plate_region,
+    e.event_datetime, e.created_at, e.plate_country, e.plate_region, e.plate_region_code,
     e.vehicle_make, e.vehicle_model, e.vehicle_color, e.vehicle_type,
     e.plate_confidence, e.confidence_mmr, e.confidence_color,
     e.json_filename,
@@ -325,6 +391,7 @@ type GetRecentEventsRow struct {
 	CreatedAt        time.Time   `json:"created_at"`
 	PlateCountry     *string     `json:"plate_country"`
 	PlateRegion      *string     `json:"plate_region"`
+	PlateRegionCode  *string     `json:"plate_region_code"`
 	VehicleMake      *string     `json:"vehicle_make"`
 	VehicleModel     *string     `json:"vehicle_model"`
 	VehicleColor     *string     `json:"vehicle_color"`
@@ -356,6 +423,7 @@ func (q *Queries) GetRecentEvents(ctx context.Context, limit int64) ([]GetRecent
 			&i.CreatedAt,
 			&i.PlateCountry,
 			&i.PlateRegion,
+			&i.PlateRegionCode,
 			&i.VehicleMake,
 			&i.VehicleModel,
 			&i.VehicleColor,
@@ -383,12 +451,12 @@ func (q *Queries) GetRecentEvents(ctx context.Context, limit int64) ([]GetRecent
 const insertEvent = `-- name: InsertEvent :one
 INSERT INTO events (
     car_id, plate_utf8, car_state, sensor_provider_id,
-    event_datetime, capture_timestamp, plate_country, plate_region, plate_confidence,
+    event_datetime, capture_timestamp, plate_country, plate_region, plate_region_code, plate_confidence,
     geotag_lat, geotag_lon, vehicle_make, vehicle_model, vehicle_color,
     vehicle_type, confidence_mmr, confidence_color,
     camera_serial, camera_ip, raw_json, created_at
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 ) RETURNING id
 `
 
@@ -401,6 +469,7 @@ type InsertEventParams struct {
 	CaptureTimestamp *string   `json:"capture_timestamp"`
 	PlateCountry     *string   `json:"plate_country"`
 	PlateRegion      *string   `json:"plate_region"`
+	PlateRegionCode  *string   `json:"plate_region_code"`
 	PlateConfidence  *float64  `json:"plate_confidence"`
 	GeotagLat        *float64  `json:"geotag_lat"`
 	GeotagLon        *float64  `json:"geotag_lon"`
@@ -426,6 +495,7 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (int64
 		arg.CaptureTimestamp,
 		arg.PlateCountry,
 		arg.PlateRegion,
+		arg.PlateRegionCode,
 		arg.PlateConfidence,
 		arg.GeotagLat,
 		arg.GeotagLon,

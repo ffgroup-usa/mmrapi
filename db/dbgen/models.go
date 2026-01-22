@@ -40,6 +40,7 @@ type Event struct {
 	VehicleType      *string   `json:"vehicle_type"`
 	ConfidenceMmr    *string   `json:"confidence_mmr"`
 	ConfidenceColor  *string   `json:"confidence_color"`
+	PlateRegionCode  *string   `json:"plate_region_code"`
 }
 
 type Image struct {

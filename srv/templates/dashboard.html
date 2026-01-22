@@ -29,9 +29,16 @@
             background: #fff; padding: 10px 15px; border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .archives a { margin-right: 10px; color: #1a73e8; text-decoration: none; font-size: 13px; }
+        .archives a { color: #1a73e8; text-decoration: none; font-size: 13px; }
         .archives a:hover { text-decoration: underline; }
         .archives a.active { font-weight: bold; }
+        .archive-item { margin-right: 15px; white-space: nowrap; }
+        .delete-btn {
+            background: none; border: none; color: #dc3545;
+            cursor: pointer; font-size: 14px; font-weight: bold;
+            padding: 0 4px; margin-left: 2px;
+        }
+        .delete-btn:hover { color: #a71d2a; }
         .spreadsheet {
             width: 100%; border-collapse: collapse;
             background: #fff;
@@ -77,6 +84,11 @@
         }
         [title] { cursor: help; }
         .has-tooltip { border-bottom: 1px dotted #666; }
+        .state { padding: 2px 6px; border-radius: 10px; font-size: 11px; }
+        .state-new { background: #d4edda; color: #155724; }
+        .state-update { background: #cce5ff; color: #004085; }
+        .state-lost { background: #f8d7da; color: #721c24; }
+        .state-reliable { background: #fff3cd; color: #856404; }
         .table-wrapper {
             overflow-x: auto;
             max-height: 75vh;
@@ -159,20 +171,26 @@
             <strong>Archives:</strong>
             <a href="/" {{if eq .ArchiveID 0}}class="active"{{end}}>Current</a>
             {{range .Archives}}
-            <a href="/archive/{{.ID}}">{{.Name}} ({{.EventCount}})</a>
+            <span class="archive-item">
+                <a href="/archive/{{.ID}}">{{.Name}} ({{.EventCount}})</a>
+                <form method="POST" action="/archive/{{.ID}}/delete" style="display:inline;" onsubmit="return confirm('Delete archive {{.Name}} and all its files?');">
+                    <button type="submit" class="delete-btn" title="Delete archive">&times;</button>
+                </form>
+            </span>
             {{end}}
         </div>
         {{end}}
         
-        {{if .Events}}
-        <div class="table-wrapper">
-        <table class="spreadsheet">
+        <div class="table-wrapper" id="tableWrapper">
+        <table class="spreadsheet" id="eventsTable" {{if not .Events}}style="display:none;"{{end}}>
             <thead>
                 <tr>
                     <th>TIMESTAMP</th>
                     <th>CAR_ID</th>
+                    <th>STATE</th>
                     <th>LPR_UTF8</th>
                     <th>COUNTRY</th>
+                    <th>REGION</th>
                     <th>CAR_MAKER</th>
                     <th>CAR_MODEL</th>
                     <th>CAR_M_TYPE</th>
@@ -185,8 +203,10 @@
                 <tr data-event-id="{{.ID}}" onclick="showJson({{.ID}})">
                     <td>{{if .EventDatetime}}{{.EventDatetime}}{{else}}{{.CreatedAt.Format "20060102 150405"}}{{end}}</td>
                     <td>{{.CarID}}</td>
+                    <td>{{if .CarState}}<span class="state state-{{.CarState}}">{{.CarState}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .PlateUtf8}}<span class="plate has-tooltip" {{if .PlateConfidence}}title="Confidence: {{.PlateConfidence}}"{{end}}>{{.PlateUtf8}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .PlateCountry}}{{.PlateCountry}}{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td>{{if .PlateRegionCode}}{{.PlateRegionCode}}{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .VehicleMake}}{{.VehicleMake}}{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .VehicleModel}}<span class="has-tooltip" {{if .ConfidenceMmr}}title="Confidence: {{.ConfidenceMmr}}"{{end}}>{{.VehicleModel}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
                     <td>{{if .VehicleType}}{{.VehicleType}}{{else}}<span class="empty">-</span>{{end}}</td>
@@ -205,9 +225,7 @@
             </tbody>
         </table>
         </div>
-        {{else}}
-        <p class="empty">No events yet. Send data to POST /api</p>
-        {{end}}
+        <p class="empty" id="noEventsMsg" {{if .Events}}style="display:none;"{{end}}>No events yet. Send data to POST /api</p>
     </div>
 
     <!-- JSON Modal -->
@@ -272,7 +290,101 @@
             }
         });
 
+        // Live updates
+        let lastEventId = 0;
+        let lastEventCount = 0;
+        const table = document.getElementById('eventsTable');
+        const tbody = table ? table.querySelector('tbody') : null;
+        const noEventsMsg = document.getElementById('noEventsMsg');
+        
+        if (tbody && tbody.children.length > 0) {
+            const firstRow = tbody.children[0];
+            lastEventId = parseInt(firstRow.dataset.eventId) || 0;
+            lastEventCount = tbody.children.length;
+        }
 
+        function formatState(state) {
+            if (!state) return '<span class="empty">-</span>';
+            return `<span class="state state-${state}">${state}</span>`;
+        }
+
+        function formatPlate(plate, conf) {
+            if (!plate) return '<span class="empty">-</span>';
+            const title = conf ? `title="Confidence: ${conf}"` : '';
+            return `<span class="plate has-tooltip" ${title}>${plate}</span>`;
+        }
+
+        function formatWithTooltip(val, conf) {
+            if (!val) return '<span class="empty">-</span>';
+            const title = conf ? `title="Confidence: ${conf}"` : '';
+            return `<span class="has-tooltip" ${title}>${val}</span>`;
+        }
+
+        function formatVal(val) {
+            return val || '<span class="empty">-</span>';
+        }
+
+        function formatImage(firstId, secondId) {
+            if (secondId > 0) {
+                return `<img class="img-icon" src="/image/${secondId}" alt="LP" onclick="event.stopPropagation(); showImage(${secondId}, ${firstId})">`;
+            } else if (firstId > 0) {
+                return `<img class="img-icon" src="/image/${firstId}" alt="LP" onclick="event.stopPropagation(); showImage(${firstId}, ${firstId})">`;
+            }
+            return '<span class="empty">-</span>';
+        }
+
+        function refreshEvents() {
+            fetch('/api/events')
+                .then(r => r.json())
+                .then(events => {
+                    // Update count
+                    const countEl = document.querySelector('.stats span');
+                    if (countEl) countEl.textContent = events ? events.length : 0;
+
+                    if (!events || events.length === 0) {
+                        if (table) table.style.display = 'none';
+                        if (noEventsMsg) noEventsMsg.style.display = 'block';
+                        return;
+                    }
+                    
+                    // Show table, hide message
+                    if (table) table.style.display = '';
+                    if (noEventsMsg) noEventsMsg.style.display = 'none';
+
+                    // Check for changes
+                    if (events[0].id === lastEventId && events.length === lastEventCount) return;
+
+                    lastEventId = events[0].id;
+                    lastEventCount = events.length;
+
+                    // Rebuild table
+                    if (!tbody) return;
+                    tbody.innerHTML = '';
+                    events.forEach(e => {
+                        const tr = document.createElement('tr');
+                        tr.dataset.eventId = e.id;
+                        tr.onclick = () => showJson(e.id);
+                        tr.innerHTML = `
+                            <td>${e.event_datetime || new Date(e.created_at).toISOString().replace('T', ' ').slice(0,17).replace(/-/g,'')}</td>
+                            <td>${e.car_id}</td>
+                            <td>${formatState(e.car_state)}</td>
+                            <td>${formatPlate(e.plate_utf8, e.plate_confidence)}</td>
+                            <td>${formatVal(e.plate_country)}</td>
+                            <td>${formatVal(e.plate_region_code)}</td>
+                            <td>${formatVal(e.vehicle_make)}</td>
+                            <td>${formatWithTooltip(e.vehicle_model, e.confidence_mmr)}</td>
+                            <td>${formatVal(e.vehicle_type)}</td>
+                            <td>${formatWithTooltip(e.vehicle_color, e.confidence_color)}</td>
+                            <td class="img-cell" onclick="event.stopPropagation();">${formatImage(e.first_image_id, e.second_image_id)}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                })
+                .catch(err => console.error('refresh error:', err));
+        }
+
+        // Refresh every 2 seconds
+        setInterval(refreshEvents, 2000);
     </script>
 </body>
 </html>
