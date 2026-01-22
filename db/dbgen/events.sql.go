@@ -103,20 +103,32 @@ func (q *Queries) GetImagesByEventID(ctx context.Context, eventID int64) ([]GetI
 }
 
 const getRecentEvents = `-- name: GetRecentEvents :many
-SELECT id, car_id, plate_utf8, car_state, sensor_provider_id, event_datetime, created_at
-FROM events
-ORDER BY created_at DESC
+SELECT 
+    e.id, e.car_id, e.plate_utf8, e.car_state, e.sensor_provider_id, 
+    e.event_datetime, e.created_at, e.plate_country, e.plate_region,
+    e.vehicle_make, e.vehicle_model, e.vehicle_color,
+    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as first_image_id,
+    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as second_image_id
+FROM events e
+ORDER BY e.created_at DESC
 LIMIT ?
 `
 
 type GetRecentEventsRow struct {
-	ID               int64     `json:"id"`
-	CarID            string    `json:"car_id"`
-	PlateUtf8        *string   `json:"plate_utf8"`
-	CarState         *string   `json:"car_state"`
-	SensorProviderID *string   `json:"sensor_provider_id"`
-	EventDatetime    *string   `json:"event_datetime"`
-	CreatedAt        time.Time `json:"created_at"`
+	ID               int64       `json:"id"`
+	CarID            string      `json:"car_id"`
+	PlateUtf8        *string     `json:"plate_utf8"`
+	CarState         *string     `json:"car_state"`
+	SensorProviderID *string     `json:"sensor_provider_id"`
+	EventDatetime    *string     `json:"event_datetime"`
+	CreatedAt        time.Time   `json:"created_at"`
+	PlateCountry     *string     `json:"plate_country"`
+	PlateRegion      *string     `json:"plate_region"`
+	VehicleMake      *string     `json:"vehicle_make"`
+	VehicleModel     *string     `json:"vehicle_model"`
+	VehicleColor     *string     `json:"vehicle_color"`
+	FirstImageID     interface{} `json:"first_image_id"`
+	SecondImageID    interface{} `json:"second_image_id"`
 }
 
 func (q *Queries) GetRecentEvents(ctx context.Context, limit int64) ([]GetRecentEventsRow, error) {
@@ -136,6 +148,13 @@ func (q *Queries) GetRecentEvents(ctx context.Context, limit int64) ([]GetRecent
 			&i.SensorProviderID,
 			&i.EventDatetime,
 			&i.CreatedAt,
+			&i.PlateCountry,
+			&i.PlateRegion,
+			&i.VehicleMake,
+			&i.VehicleModel,
+			&i.VehicleColor,
+			&i.FirstImageID,
+			&i.SecondImageID,
 		); err != nil {
 			return nil, err
 		}

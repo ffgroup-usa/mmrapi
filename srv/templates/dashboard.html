@@ -11,72 +11,140 @@
             margin: 0; padding: 20px;
             background: #f5f5f5;
         }
-        .container { max-width: 1200px; margin: 0 auto; }
+        .container { max-width: 1400px; margin: 0 auto; }
         h1 { color: #333; margin-bottom: 10px; }
         .stats {
-            background: #fff; padding: 20px; border-radius: 8px;
+            background: #fff; padding: 15px 20px; border-radius: 8px;
             margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: inline-block;
         }
-        .stats span { font-size: 2em; color: #2196F3; font-weight: bold; }
-        table {
+        .stats span { font-size: 1.5em; color: #2196F3; font-weight: bold; }
+        .spreadsheet {
             width: 100%; border-collapse: collapse;
-            background: #fff; border-radius: 8px;
+            background: #fff;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            overflow: hidden;
+            font-size: 13px;
         }
-        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eee; }
-        th { background: #2196F3; color: white; }
-        tr:hover { background: #f5f5f5; }
-        a { color: #2196F3; text-decoration: none; }
+        .spreadsheet th, .spreadsheet td {
+            padding: 8px 10px;
+            text-align: left;
+            border: 1px solid #e0e0e0;
+            white-space: nowrap;
+        }
+        .spreadsheet th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+            position: sticky;
+            top: 0;
+        }
+        .spreadsheet tr:hover { background: #f5f9ff; }
+        .spreadsheet tr:nth-child(even) { background: #fafafa; }
+        .spreadsheet tr:nth-child(even):hover { background: #f5f9ff; }
+        a { color: #1a73e8; text-decoration: none; }
         a:hover { text-decoration: underline; }
         .plate {
-            font-family: monospace; font-weight: bold;
-            background: #fff3cd; padding: 4px 8px; border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            background: #fff3cd;
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid #ffc107;
         }
-        .state { padding: 2px 8px; border-radius: 12px; font-size: 0.85em; }
-        .state-new { background: #c8e6c9; color: #2e7d32; }
-        .state-lost { background: #ffcdd2; color: #c62828; }
-        .state-update { background: #bbdefb; color: #1565c0; }
-        .empty { color: #999; font-style: italic; }
+        .empty { color: #999; }
+        .img-cell {
+            position: relative;
+            cursor: pointer;
+        }
+        .img-cell img.thumb {
+            height: 32px;
+            width: auto;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            vertical-align: middle;
+        }
+        .img-cell .full-img {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            z-index: 1000;
+            background: #fff;
+            padding: 5px;
+            border: 2px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .img-cell .full-img img {
+            max-width: 400px;
+            max-height: 300px;
+            display: block;
+        }
+        .img-cell:hover .full-img {
+            display: block;
+        }
+        .table-wrapper {
+            overflow-x: auto;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🚗 Car API Dashboard</h1>
-        <p>Host: {{.Hostname}}</p>
         
         <div class="stats">
             <span>{{.EventCount}}</span> total events
         </div>
         
-        <h2>Recent Events</h2>
         {{if .Events}}
-        <table>
+        <div class="table-wrapper">
+        <table class="spreadsheet">
             <thead>
                 <tr>
-                    <th>ID</th>
-                    <th>Plate</th>
-                    <th>Car ID</th>
-                    <th>State</th>
-                    <th>Sensor</th>
-                    <th>Event Time</th>
-                    <th>Received</th>
+                    <th>TIMESTAMP</th>
+                    <th>CAR_ID</th>
+                    <th>LPR_UTF8</th>
+                    <th>COUNTRY</th>
+                    <th>CAR_MAKER</th>
+                    <th>CAR_MODEL</th>
+                    <th>CAR_M_TYPE</th>
+                    <th>CAR_COLOR</th>
+                    <th>LP_CROP</th>
                 </tr>
             </thead>
             <tbody>
                 {{range .Events}}
                 <tr>
-                    <td><a href="/event/{{.ID}}">{{.ID}}</a></td>
+                    <td>{{if .EventDatetime}}{{.EventDatetime}}{{else}}{{.CreatedAt.Format "20060102 150405"}}{{end}}</td>
+                    <td><a href="/event/{{.ID}}">{{.CarID}}</a></td>
                     <td>{{if .PlateUtf8}}<span class="plate">{{.PlateUtf8}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td>{{.CarID}}</td>
-                    <td>{{if .CarState}}<span class="state state-{{.CarState}}">{{.CarState}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td>{{if .SensorProviderID}}{{.SensorProviderID}}{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td>{{if .EventDatetime}}{{.EventDatetime}}{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td>{{.CreatedAt.Format "2006-01-02 15:04:05"}}</td>
+                    <td>{{if .PlateCountry}}{{.PlateCountry}}{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td>{{if .VehicleMake}}{{.VehicleMake}}{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td>{{if .VehicleModel}}{{.VehicleModel}}{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td><span class="empty">-</span></td>
+                    <td>{{if .VehicleColor}}{{.VehicleColor}}{{else}}<span class="empty">-</span>{{end}}</td>
+                    <td class="img-cell">
+                        {{if gt .SecondImageID 0}}
+                        <img class="thumb" src="/image/{{.SecondImageID}}" alt="LP">
+                        <div class="full-img">
+                            <img src="/image/{{.FirstImageID}}" alt="Full image">
+                        </div>
+                        {{else if gt .FirstImageID 0}}
+                        <img class="thumb" src="/image/{{.FirstImageID}}" alt="LP">
+                        <div class="full-img">
+                            <img src="/image/{{.FirstImageID}}" alt="Full image">
+                        </div>
+                        {{else}}
+                        <span class="empty">-</span>
+                        {{end}}
+                    </td>
                 </tr>
                 {{end}}
             </tbody>
         </table>
+        </div>
         {{else}}
         <p class="empty">No events yet. Send data to POST /api</p>
         {{end}}

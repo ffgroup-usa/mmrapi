@@ -13,9 +13,14 @@ INSERT INTO images (event_id, image_type, filename, image_data, created_at)
 VALUES (?, ?, ?, ?, ?);
 
 -- name: GetRecentEvents :many
-SELECT id, car_id, plate_utf8, car_state, sensor_provider_id, event_datetime, created_at
-FROM events
-ORDER BY created_at DESC
+SELECT 
+    e.id, e.car_id, e.plate_utf8, e.car_state, e.sensor_provider_id, 
+    e.event_datetime, e.created_at, e.plate_country, e.plate_region,
+    e.vehicle_make, e.vehicle_model, e.vehicle_color,
+    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1), 0) as first_image_id,
+    COALESCE((SELECT id FROM images WHERE event_id = e.id ORDER BY id LIMIT 1 OFFSET 1), 0) as second_image_id
+FROM events e
+ORDER BY e.created_at DESC
 LIMIT ?;
 
 -- name: GetEventByID :one
