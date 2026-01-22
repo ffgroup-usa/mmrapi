@@ -1,12 +1,15 @@
 package srv
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xuri/excelize/v2"
 	"srv.exe.dev/db"
 	"srv.exe.dev/db/dbgen"
 )
@@ -161,6 +165,22 @@ func (s *Server) setUpDatabase(dbPath string) error {
 func sanitizeFilename(name string) string {
 	re := regexp.MustCompile(`[^a-zA-Z0-9._-]`)
 	return re.ReplaceAllString(name, "_")
+}
+
+// toInt64 converts various numeric types to int64
+func toInt64(v interface{}) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case int32:
+		return int64(n)
+	case float64:
+		return int64(n)
+	default:
+		return 0
+	}
 }
 
 // HandleAPI processes incoming car events
@@ -555,6 +575,255 @@ func (s *Server) HandleCompare(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// HandleCompareExport exports compare data to XLSX with embedded images
+func (s *Server) HandleCompareExport(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid archive id", http.StatusBadRequest)
+		return
+	}
+
+	q := dbgen.New(s.DB)
+	archive, err := q.GetArchiveByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, "archive not found", http.StatusNotFound)
+		return
+	}
+
+	events, _ := q.GetArchivedEvents(r.Context(), &id)
+
+	// Parse form data for incorrect checkboxes
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	// Get incorrect items from form (format: "plate_123", "maker_123", etc.)
+	incorrectPlates := make(map[int64]bool)
+	incorrectMakers := make(map[int64]bool)
+	incorrectModels := make(map[int64]bool)
+	incorrectColors := make(map[int64]bool)
+
+	for _, v := range r.Form["incorrect"] {
+		parts := strings.SplitN(v, "_", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		eventID, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		switch parts[0] {
+		case "plate":
+			incorrectPlates[eventID] = true
+		case "maker":
+			incorrectMakers[eventID] = true
+		case "model":
+			incorrectModels[eventID] = true
+		case "color":
+			incorrectColors[eventID] = true
+		}
+	}
+
+	// Create Excel file
+	f := excelize.NewFile()
+	defer f.Close()
+
+	sheetName := "Compare Results"
+	f.SetSheetName("Sheet1", sheetName)
+
+	// Define styles
+	redStyle, _ := f.NewStyle(&excelize.Style{
+		Fill: excelize.Fill{Type: "pattern", Color: []string{"F8D7DA"}, Pattern: 1},
+		Font: &excelize.Font{Color: "721C24"},
+		Border: []excelize.Border{
+			{Type: "left", Color: "E0E0E0", Style: 1},
+			{Type: "top", Color: "E0E0E0", Style: 1},
+			{Type: "bottom", Color: "E0E0E0", Style: 1},
+			{Type: "right", Color: "E0E0E0", Style: 1},
+		},
+	})
+
+	headerStyle, _ := f.NewStyle(&excelize.Style{
+		Fill: excelize.Fill{Type: "pattern", Color: []string{"F8F9FA"}, Pattern: 1},
+		Font: &excelize.Font{Bold: true},
+		Border: []excelize.Border{
+			{Type: "left", Color: "E0E0E0", Style: 1},
+			{Type: "top", Color: "E0E0E0", Style: 1},
+			{Type: "bottom", Color: "E0E0E0", Style: 1},
+			{Type: "right", Color: "E0E0E0", Style: 1},
+		},
+	})
+
+	// Headers
+	headers := []string{"TIMESTAMP", "CAR_ID", "LPR_UTF8", "LP_CROP", "VEHICLE", "CAR_MAKER", "CAR_MODEL", "CAR_COLOR"}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheetName, cell, h)
+		f.SetCellStyle(sheetName, cell, cell, headerStyle)
+	}
+
+	// Set column widths
+	f.SetColWidth(sheetName, "A", "A", 20) // TIMESTAMP
+	f.SetColWidth(sheetName, "B", "B", 10) // CAR_ID
+	f.SetColWidth(sheetName, "C", "C", 12) // LPR_UTF8
+	f.SetColWidth(sheetName, "D", "D", 15) // LP_CROP
+	f.SetColWidth(sheetName, "E", "E", 20) // VEHICLE
+	f.SetColWidth(sheetName, "F", "F", 15) // CAR_MAKER
+	f.SetColWidth(sheetName, "G", "G", 25) // CAR_MODEL
+	f.SetColWidth(sheetName, "H", "H", 12) // CAR_COLOR
+
+	// Statistics counters
+	var plateCorrect, plateIncorrect int
+	var makerCorrect, makerIncorrect int
+	var modelCorrect, modelIncorrect int
+	var colorCorrect, colorIncorrect int
+
+	// Data rows
+	for i, e := range events {
+		row := i + 2
+
+		// Set row height for images
+		f.SetRowHeight(sheetName, row, 50)
+
+		// TIMESTAMP
+		timestamp := ""
+		if e.EventDatetime != nil {
+			timestamp = *e.EventDatetime
+		} else {
+			timestamp = e.CreatedAt.Format("20060102 150405")
+		}
+		f.SetCellValue(sheetName, fmt.Sprintf("A%d", row), timestamp)
+
+		// CAR_ID
+		f.SetCellValue(sheetName, fmt.Sprintf("B%d", row), e.CarID)
+
+		// LPR_UTF8
+		plateCell := fmt.Sprintf("C%d", row)
+		if e.PlateUtf8 != nil {
+			f.SetCellValue(sheetName, plateCell, *e.PlateUtf8)
+		}
+		if incorrectPlates[e.ID] {
+			f.SetCellStyle(sheetName, plateCell, plateCell, redStyle)
+			plateIncorrect++
+		} else {
+			plateCorrect++
+		}
+
+		// LP_CROP image - handle various integer types from SQLite
+		plateImgID := toInt64(e.PlateImageID)
+		if plateImgID > 0 {
+			imgData, err := q.GetImageData(r.Context(), plateImgID)
+			if err == nil && len(imgData) > 0 {
+				f.AddPictureFromBytes(sheetName, fmt.Sprintf("D%d", row), &excelize.Picture{
+					Extension: ".jpg",
+					File:      imgData,
+					Format:    &excelize.GraphicOptions{ScaleX: 0.3, ScaleY: 0.3, Positioning: "oneCell"},
+				})
+			}
+		}
+
+		// VEHICLE image
+		vehicleImgID := toInt64(e.VehicleImageID)
+		if vehicleImgID > 0 {
+			imgData, err := q.GetImageData(r.Context(), vehicleImgID)
+			if err == nil && len(imgData) > 0 {
+				f.AddPictureFromBytes(sheetName, fmt.Sprintf("E%d", row), &excelize.Picture{
+					Extension: ".jpg",
+					File:      imgData,
+					Format:    &excelize.GraphicOptions{ScaleX: 0.15, ScaleY: 0.15, Positioning: "oneCell"},
+				})
+			}
+		}
+
+		// CAR_MAKER
+		makerCell := fmt.Sprintf("F%d", row)
+		if e.VehicleMake != nil {
+			f.SetCellValue(sheetName, makerCell, *e.VehicleMake)
+		}
+		if incorrectMakers[e.ID] {
+			f.SetCellStyle(sheetName, makerCell, makerCell, redStyle)
+			makerIncorrect++
+		} else {
+			makerCorrect++
+		}
+
+		// CAR_MODEL
+		modelCell := fmt.Sprintf("G%d", row)
+		if e.VehicleModel != nil {
+			f.SetCellValue(sheetName, modelCell, *e.VehicleModel)
+		}
+		if incorrectModels[e.ID] {
+			f.SetCellStyle(sheetName, modelCell, modelCell, redStyle)
+			modelIncorrect++
+		} else {
+			modelCorrect++
+		}
+
+		// CAR_COLOR
+		colorCell := fmt.Sprintf("H%d", row)
+		if e.VehicleColor != nil {
+			f.SetCellValue(sheetName, colorCell, *e.VehicleColor)
+		}
+		if incorrectColors[e.ID] {
+			f.SetCellStyle(sheetName, colorCell, colorCell, redStyle)
+			colorIncorrect++
+		} else {
+			colorCorrect++
+		}
+	}
+
+	// Add Statistics sheet
+	statsSheet := "Statistics"
+	f.NewSheet(statsSheet)
+
+	f.SetCellValue(statsSheet, "A1", "Field")
+	f.SetCellValue(statsSheet, "B1", "Total")
+	f.SetCellValue(statsSheet, "C1", "Correct")
+	f.SetCellValue(statsSheet, "D1", "Incorrect")
+	f.SetCellValue(statsSheet, "E1", "Accuracy %")
+	f.SetCellStyle(statsSheet, "A1", "E1", headerStyle)
+
+	total := len(events)
+	writeStatRow := func(row int, field string, correct, incorrect int) {
+		pct := 0.0
+		if total > 0 {
+			pct = float64(correct) / float64(total) * 100
+		}
+		f.SetCellValue(statsSheet, fmt.Sprintf("A%d", row), field)
+		f.SetCellValue(statsSheet, fmt.Sprintf("B%d", row), total)
+		f.SetCellValue(statsSheet, fmt.Sprintf("C%d", row), correct)
+		f.SetCellValue(statsSheet, fmt.Sprintf("D%d", row), incorrect)
+		f.SetCellValue(statsSheet, fmt.Sprintf("E%d", row), fmt.Sprintf("%.1f%%", pct))
+	}
+
+	writeStatRow(2, "LPR (Plate)", plateCorrect, plateIncorrect)
+	writeStatRow(3, "CAR_MAKER", makerCorrect, makerIncorrect)
+	writeStatRow(4, "CAR_MODEL", modelCorrect, modelIncorrect)
+	writeStatRow(5, "CAR_COLOR", colorCorrect, colorIncorrect)
+
+	f.SetColWidth(statsSheet, "A", "A", 15)
+	f.SetColWidth(statsSheet, "B", "E", 12)
+
+	// Write to buffer
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		slog.Warn("failed to write xlsx", "error", err)
+		http.Error(w, "failed to generate xlsx", http.StatusInternalServerError)
+		return
+	}
+
+	// Send response
+	archiveName := "export"
+	if archive.Name != nil {
+		archiveName = sanitizeFilename(*archive.Name)
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="compare_%s.xlsx"`, archiveName))
+	w.Write(buf.Bytes())
+}
+
 // HandleClean archives current events
 func (s *Server) HandleClean(w http.ResponseWriter, r *http.Request) {
 	q := dbgen.New(s.DB)
@@ -852,6 +1121,7 @@ func (s *Server) Serve(addr string) error {
 	mux.HandleFunc("GET /image/{id}/download", s.HandleImageDownload)
 	mux.HandleFunc("GET /archive/{id}", s.HandleArchive)
 	mux.HandleFunc("GET /archive/{id}/compare", s.HandleCompare)
+	mux.HandleFunc("POST /archive/{id}/compare/export", s.HandleCompareExport)
 	mux.HandleFunc("POST /archive/{id}/delete", s.HandleDeleteArchive)
 	mux.HandleFunc("POST /clean", s.HandleClean)
 	mux.HandleFunc("GET /json/{id}", s.HandleRawJson)

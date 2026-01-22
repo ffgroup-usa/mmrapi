@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Compare: {{.Archive.Name}} - Car API</title>
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -71,9 +70,7 @@
             border: 1px solid #ddd;
             border-radius: 2px;
         }
-        .vehicle-cell {
-            position: relative;
-        }
+        .vehicle-cell { position: relative; }
         .vehicle-thumb {
             max-height: 50px;
             width: auto;
@@ -87,7 +84,6 @@
             max-height: 70vh;
             overflow-y: auto;
         }
-        /* Comparison specific styles */
         .check-cell { text-align: center; }
         .check-cell input[type="checkbox"] {
             width: 18px; height: 18px;
@@ -100,7 +96,6 @@
             text-align: center;
             min-width: 30px;
         }
-        /* Image modal - click to close */
         .modal {
             display: none;
             position: fixed;
@@ -148,7 +143,6 @@
             border-radius: 3px;
         }
         .legend-box.incorrect { background-color: #f8d7da; }
-        /* Statistics section */
         .statistics {
             background: #fff; padding: 15px 20px; border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -208,7 +202,7 @@
         </div>
 
         <div class="legend">
-            <strong>Instructions:</strong> Check the box next to a field if the recognition result is <strong>incorrect</strong>. Hover over vehicle thumbnail to see full image.
+            <strong>Instructions:</strong> Check the box if the recognition is <strong>incorrect</strong>. Hover 1 sec over vehicle to see full image.
             <span class="legend-item" style="margin-left: 20px;">
                 <span class="legend-box"></span> Correct (default)
             </span>
@@ -217,6 +211,7 @@
             </span>
         </div>
 
+        <form id="exportForm" method="POST" action="/archive/{{.Archive.ID}}/compare/export">
         <div class="table-wrapper">
         <table class="spreadsheet" id="compareTable">
             <thead>
@@ -237,11 +232,11 @@
             </thead>
             <tbody>
                 {{range .Events}}
-                <tr data-event-id="{{.ID}}" data-plate-img="{{if gt .PlateImageID 0}}/image/{{.PlateImageID}}{{end}}" data-vehicle-img="{{if gt .VehicleImageID 0}}/image/{{.VehicleImageID}}{{end}}">
+                <tr data-event-id="{{.ID}}">
                     <td>{{if .EventDatetime}}{{.EventDatetime}}{{else}}{{.CreatedAt.Format "20060102 150405"}}{{end}}</td>
                     <td>{{.CarID}}</td>
                     <td class="value-cell" data-field="plate">{{if .PlateUtf8}}<span class="plate">{{.PlateUtf8}}</span>{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td class="check-cell"><input type="checkbox" data-field="plate" onchange="toggleIncorrect(this, 'plate'); updateStats();"></td>
+                    <td class="check-cell"><input type="checkbox" name="incorrect" value="plate_{{.ID}}" data-field="plate" onchange="toggleIncorrect(this, 'plate'); updateStats();"></td>
                     <td class="img-cell">
                         {{if gt .PlateImageID 0}}
                         <img class="img-icon" src="/image/{{.PlateImageID}}" alt="LP" onclick="showImage('/image/{{.PlateImageID}}')">
@@ -249,22 +244,25 @@
                     </td>
                     <td class="vehicle-cell">
                         {{if gt .VehicleImageID 0}}
-                        <img class="vehicle-thumb" src="/image/{{.VehicleImageID}}" alt="Vehicle" onmouseenter="showImage('/image/{{.VehicleImageID}}')">
+                        <img class="vehicle-thumb" src="/image/{{.VehicleImageID}}" alt="Vehicle" 
+                             data-full-src="/image/{{.VehicleImageID}}"
+                             onmouseenter="startHoverTimer(this)" 
+                             onmouseleave="cancelHoverTimer()">
                         {{else}}<span class="empty">-</span>{{end}}
                     </td>
                     <td class="value-cell" data-field="maker">{{if .VehicleMake}}{{.VehicleMake}}{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td class="check-cell"><input type="checkbox" data-field="maker" onchange="toggleIncorrect(this, 'maker'); updateStats();"></td>
+                    <td class="check-cell"><input type="checkbox" name="incorrect" value="maker_{{.ID}}" data-field="maker" onchange="toggleIncorrect(this, 'maker'); updateStats();"></td>
                     <td class="value-cell" data-field="model">{{if .VehicleModel}}{{.VehicleModel}}{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td class="check-cell"><input type="checkbox" data-field="model" onchange="toggleIncorrect(this, 'model'); updateStats();"></td>
+                    <td class="check-cell"><input type="checkbox" name="incorrect" value="model_{{.ID}}" data-field="model" onchange="toggleIncorrect(this, 'model'); updateStats();"></td>
                     <td class="value-cell" data-field="color">{{if .VehicleColor}}{{.VehicleColor}}{{else}}<span class="empty">-</span>{{end}}</td>
-                    <td class="check-cell"><input type="checkbox" data-field="color" onchange="toggleIncorrect(this, 'color'); updateStats();"></td>
+                    <td class="check-cell"><input type="checkbox" name="incorrect" value="color_{{.ID}}" data-field="color" onchange="toggleIncorrect(this, 'color'); updateStats();"></td>
                 </tr>
                 {{end}}
             </tbody>
         </table>
         </div>
+        </form>
 
-        <!-- Statistics Section -->
         <div class="statistics">
             <h3>📊 Recognition Accuracy Statistics</h3>
             <div class="stat-grid">
@@ -308,7 +306,6 @@
         </div>
     </div>
 
-    <!-- Image Modal - click anywhere to close -->
     <div id="imageModal" class="modal" onclick="closeModal()">
         <div class="modal-content" onclick="event.stopPropagation()">
             <img id="modalImage" src="" alt="Full Image" onclick="closeModal()">
@@ -318,6 +315,7 @@
 
     <script>
         const totalRows = document.querySelectorAll('#compareTable tbody tr').length;
+        let hoverTimer = null;
 
         function toggleIncorrect(checkbox, field) {
             const row = checkbox.closest('tr');
@@ -345,6 +343,20 @@
             });
         }
 
+        function startHoverTimer(img) {
+            cancelHoverTimer();
+            hoverTimer = setTimeout(() => {
+                showImage(img.dataset.fullSrc);
+            }, 1000);
+        }
+
+        function cancelHoverTimer() {
+            if (hoverTimer) {
+                clearTimeout(hoverTimer);
+                hoverTimer = null;
+            }
+        }
+
         function showImage(url) {
             document.getElementById('imageModal').classList.add('active');
             document.getElementById('modalImage').src = url;
@@ -352,140 +364,19 @@
 
         function closeModal() {
             document.getElementById('imageModal').classList.remove('active');
+            cancelHoverTimer();
         }
 
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') closeModal();
         });
 
-        // Initialize stats
-        updateStats();
-
-        async function exportToXLSX() {
-            const rows = document.querySelectorAll('#compareTable tbody tr');
-            
-            // Create workbook
-            const wb = XLSX.utils.book_new();
-            
-            // Prepare data with header
-            const data = [
-                ['TIMESTAMP', 'CAR_ID', 'LPR_UTF8', 'LPR_INCORRECT', 'LP_CROP', 'VEHICLE',
-                 'CAR_MAKER', 'MAKER_INCORRECT', 'CAR_MODEL', 'MODEL_INCORRECT', 
-                 'CAR_COLOR', 'COLOR_INCORRECT']
-            ];
-
-            // Track cells that need red background
-            const redCells = [];
-            // Track cells with images
-            const imageCells = [];
-
-            let rowIndex = 1; // Start after header
-            rows.forEach(row => {
-                const cells = row.querySelectorAll('td');
-                const plateCheck = row.querySelector('input[data-field="plate"]');
-                const makerCheck = row.querySelector('input[data-field="maker"]');
-                const modelCheck = row.querySelector('input[data-field="model"]');
-                const colorCheck = row.querySelector('input[data-field="color"]');
-                
-                const plateImg = row.dataset.plateImg || '';
-                const vehicleImg = row.dataset.vehicleImg || '';
-                
-                const rowData = [
-                    cells[0].textContent.trim(),  // TIMESTAMP
-                    cells[1].textContent.trim(),  // CAR_ID
-                    cells[2].textContent.trim(),  // LPR_UTF8
-                    plateCheck.checked ? 'INCORRECT' : '',  // LPR_INCORRECT
-                    '',  // LP_CROP - will be filled below
-                    '',  // VEHICLE - will be filled below
-                    cells[6].textContent.trim(),  // CAR_MAKER
-                    makerCheck.checked ? 'INCORRECT' : '',  // MAKER_INCORRECT
-                    cells[8].textContent.trim(),  // CAR_MODEL
-                    modelCheck.checked ? 'INCORRECT' : '',  // MODEL_INCORRECT
-                    cells[10].textContent.trim(), // CAR_COLOR
-                    colorCheck.checked ? 'INCORRECT' : '',  // COLOR_INCORRECT
-                ];
-                
-                // Update image URLs properly
-                rowData[4] = plateImg ? window.location.origin + plateImg : '';
-                rowData[5] = vehicleImg ? window.location.origin + vehicleImg : '';
-                
-                // Track incorrect cells for red background
-                if (plateCheck.checked) redCells.push({r: rowIndex, c: 2}); // LPR_UTF8 column
-                if (makerCheck.checked) redCells.push({r: rowIndex, c: 6}); // CAR_MAKER column
-                if (modelCheck.checked) redCells.push({r: rowIndex, c: 8}); // CAR_MODEL column
-                if (colorCheck.checked) redCells.push({r: rowIndex, c: 10}); // CAR_COLOR column
-                
-                // Track image cells
-                if (plateImg) imageCells.push({r: rowIndex, c: 4, url: plateImg});
-                if (vehicleImg) imageCells.push({r: rowIndex, c: 5, url: vehicleImg});
-                
-                data.push(rowData);
-                rowIndex++;
-            });
-
-            const ws = XLSX.utils.aoa_to_sheet(data);
-
-            // Apply red background to incorrect cells
-            redCells.forEach(cell => {
-                const addr = XLSX.utils.encode_cell(cell);
-                if (!ws[addr]) ws[addr] = {t: 's', v: ''};
-                ws[addr].s = {
-                    fill: { fgColor: { rgb: "F8D7DA" } },
-                    font: { color: { rgb: "721C24" } }
-                };
-            });
-
-            // Set column widths
-            ws['!cols'] = [
-                {wch: 20}, // TIMESTAMP
-                {wch: 10}, // CAR_ID
-                {wch: 12}, // LPR_UTF8
-                {wch: 12}, // LPR_INCORRECT
-                {wch: 40}, // LP_CROP (URL)
-                {wch: 40}, // VEHICLE (URL)
-                {wch: 15}, // CAR_MAKER
-                {wch: 14}, // MAKER_INCORRECT
-                {wch: 25}, // CAR_MODEL
-                {wch: 14}, // MODEL_INCORRECT
-                {wch: 12}, // CAR_COLOR
-                {wch: 14}, // COLOR_INCORRECT
-            ];
-
-            // Add statistics sheet
-            const statsData = [
-                ['Field', 'Total', 'Correct', 'Incorrect', 'Accuracy %'],
-                ['LPR (Plate)', totalRows, 
-                    parseInt(document.getElementById('plate-correct').textContent),
-                    parseInt(document.getElementById('plate-incorrect').textContent),
-                    document.getElementById('plate-pct').textContent],
-                ['CAR_MAKER', totalRows,
-                    parseInt(document.getElementById('maker-correct').textContent),
-                    parseInt(document.getElementById('maker-incorrect').textContent),
-                    document.getElementById('maker-pct').textContent],
-                ['CAR_MODEL', totalRows,
-                    parseInt(document.getElementById('model-correct').textContent),
-                    parseInt(document.getElementById('model-incorrect').textContent),
-                    document.getElementById('model-pct').textContent],
-                ['CAR_COLOR', totalRows,
-                    parseInt(document.getElementById('color-correct').textContent),
-                    parseInt(document.getElementById('color-incorrect').textContent),
-                    document.getElementById('color-pct').textContent],
-            ];
-            const statsWs = XLSX.utils.aoa_to_sheet(statsData);
-            statsWs['!cols'] = [{wch: 15}, {wch: 10}, {wch: 10}, {wch: 10}, {wch: 12}];
-
-            XLSX.utils.book_append_sheet(wb, ws, 'Compare Results');
-            XLSX.utils.book_append_sheet(wb, statsWs, 'Statistics');
-            
-            // Generate filename with archive name
-            const archiveName = '{{.Archive.Name}}'.replace(/[^a-zA-Z0-9_-]/g, '_');
-            
-            // Write with styles (requires xlsx-style or full version)
-            XLSX.writeFile(wb, `compare_${archiveName}.xlsx`, {
-                cellStyles: true,
-                bookSST: true
-            });
+        function exportToXLSX() {
+            document.getElementById('exportForm').submit();
         }
+
+        // Initialize stats on page load
+        updateStats();
     </script>
 </body>
 </html>
