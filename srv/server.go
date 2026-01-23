@@ -476,7 +476,7 @@ func (s *Server) jsonError(w http.ResponseWriter, msg string, status int) {
 func (s *Server) HandleRoot(w http.ResponseWriter, r *http.Request) {
 	q := dbgen.New(s.DB)
 	count, _ := q.CountCurrentEvents(r.Context())
-	events, _ := q.GetRecentEvents(r.Context(), 500)
+	events, _ := q.GetRecentEvents(r.Context(), 1000)
 	archives, _ := q.GetArchives(r.Context())
 
 	data := struct {
@@ -1145,7 +1145,7 @@ func (s *Server) HandleDeleteArchive(w http.ResponseWriter, r *http.Request) {
 // HandleEventsAPI returns recent events as JSON for live updates
 func (s *Server) HandleEventsAPI(w http.ResponseWriter, r *http.Request) {
 	q := dbgen.New(s.DB)
-	events, err := q.GetRecentEvents(r.Context(), 500)
+	events, err := q.GetRecentEvents(r.Context(), 1000)
 	if err != nil {
 		s.jsonError(w, "database error", http.StatusInternalServerError)
 		return
