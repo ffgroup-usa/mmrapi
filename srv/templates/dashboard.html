@@ -39,6 +39,11 @@
             padding: 0 4px; margin-left: 2px;
         }
         .delete-btn:hover { color: #a71d2a; }
+        .rename-btn {
+            background: none; border: none; color: #666;
+            cursor: pointer; font-size: 12px; padding: 0 2px;
+        }
+        .rename-btn:hover { color: #333; }
         .spreadsheet {
             width: 100%; border-collapse: collapse;
             background: #fff;
@@ -173,6 +178,7 @@
             {{range .Archives}}
             <span class="archive-item">
                 <a href="/archive/{{.ID}}">{{.Name}} ({{.EventCount}})</a>
+                <button class="rename-btn" onclick="renameArchive({{.ID}}, '{{.Name}}')" title="Rename archive">✎</button>
                 <form method="POST" action="/archive/{{.ID}}/delete" style="display:inline;" onsubmit="return confirm('Delete archive {{.Name}} and all its files?');">
                     <button type="submit" class="delete-btn" title="Delete archive">&times;</button>
                 </form>
@@ -385,6 +391,22 @@
 
         // Refresh every 2 seconds
         setInterval(refreshEvents, 2000);
+
+        function renameArchive(id, currentName) {
+            const newName = prompt('Enter new archive name:', currentName);
+            if (newName && newName.trim() && newName !== currentName) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/archive/' + id + '/rename';
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'name';
+                input.value = newName.trim();
+                form.appendChild(input);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
     </script>
 </body>
 </html>

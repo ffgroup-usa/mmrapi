@@ -150,12 +150,20 @@
         }
         .btn-save:hover { background: #218838; }
         .modal-image { max-width: 100%; max-height: 70vh; }
+        .rename-btn {
+            background: none; border: none; cursor: pointer;
+            font-size: 16px; padding: 2px 6px; vertical-align: middle;
+            opacity: 0.6;
+        }
+        .rename-btn:hover { opacity: 1; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>📁 Archive: {{.Archive.Name}}</h1>
+            <h1>📁 Archive: <span id="archive-name">{{.Archive.Name}}</span>
+                <button onclick="renameArchive()" class="rename-btn" title="Rename archive">✏️</button>
+            </h1>
             <div class="stats">
                 <span>{{.EventCount}}</span> events
             </div>
@@ -284,6 +292,23 @@
                 closeModal('imageModal');
             }
         });
+
+        function renameArchive() {
+            const currentName = document.getElementById('archive-name').textContent;
+            const newName = prompt('Enter new archive name:', currentName);
+            if (newName && newName.trim() && newName !== currentName) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/archive/{{.Archive.ID}}/rename';
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'name';
+                input.value = newName.trim();
+                form.appendChild(input);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
     </script>
 </body>
 </html>

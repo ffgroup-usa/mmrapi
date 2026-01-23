@@ -105,6 +105,9 @@ DELETE FROM events WHERE archive_id = ?;
 -- name: DeleteArchive :exec
 DELETE FROM archives WHERE id = ?;
 
+-- name: RenameArchive :exec
+UPDATE archives SET name = ? WHERE id = ?;
+
 -- name: SetCompareResult :exec
 INSERT INTO compare_results (archive_id, event_id, field, is_incorrect, updated_at)
 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)

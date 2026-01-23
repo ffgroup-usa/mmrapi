@@ -585,6 +585,20 @@ func (q *Queries) InsertImage(ctx context.Context, arg InsertImageParams) error 
 	return err
 }
 
+const renameArchive = `-- name: RenameArchive :exec
+UPDATE archives SET name = ? WHERE id = ?
+`
+
+type RenameArchiveParams struct {
+	Name *string `json:"name"`
+	ID   int64   `json:"id"`
+}
+
+func (q *Queries) RenameArchive(ctx context.Context, arg RenameArchiveParams) error {
+	_, err := q.db.ExecContext(ctx, renameArchive, arg.Name, arg.ID)
+	return err
+}
+
 const searchByPlate = `-- name: SearchByPlate :many
 SELECT id, car_id, plate_utf8, car_state, sensor_provider_id, event_datetime, created_at
 FROM events

@@ -1142,6 +1142,41 @@ func (s *Server) HandleDeleteArchive(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// HandleRenameArchive renames an archive
+func (s *Server) HandleRenameArchive(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid archive id", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+
+	q := dbgen.New(s.DB)
+	if err := q.RenameArchive(r.Context(), dbgen.RenameArchiveParams{
+		Name: &name,
+		ID:   id,
+	}); err != nil {
+		slog.Error("failed to rename archive", "error", err)
+		http.Error(w, "failed to rename archive", http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("renamed archive", "id", id, "name", name)
+	
+	// Redirect back to where they came from
+	referer := r.Header.Get("Referer")
+	if referer == "" {
+		referer = "/"
+	}
+	http.Redirect(w, r, referer, http.StatusSeeOther)
+}
+
 // HandleEventsAPI returns recent events as JSON for live updates
 func (s *Server) HandleEventsAPI(w http.ResponseWriter, r *http.Request) {
 	q := dbgen.New(s.DB)
@@ -1169,6 +1204,7 @@ func (s *Server) Serve(addr string) error {
 	mux.HandleFunc("GET /archive/{id}/compare/export", s.HandleCompareExport)
 	mux.HandleFunc("POST /archive/{id}/compare/toggle", s.HandleCompareToggle)
 	mux.HandleFunc("POST /archive/{id}/delete", s.HandleDeleteArchive)
+	mux.HandleFunc("POST /archive/{id}/rename", s.HandleRenameArchive)
 	mux.HandleFunc("POST /clean", s.HandleClean)
 	mux.HandleFunc("GET /json/{id}", s.HandleRawJson)
 	mux.HandleFunc("GET /json/{id}/download", s.HandleJsonFile)
